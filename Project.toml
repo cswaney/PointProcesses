@@ -1,0 +1,4 @@
+name = "PointProcesses"
+uuid = "c621e528-726d-423f-89af-0c61f24011c7"
+authors = ["cswaney <colinswaney@gmail.com>"]
+version = "0.1.0"
