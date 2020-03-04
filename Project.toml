@@ -2,3 +2,8 @@ name = "PointProcesses"
 uuid = "c621e528-726d-423f-89af-0c61f24011c7"
 authors = ["cswaney <colinswaney@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004"

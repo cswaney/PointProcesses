@@ -1,5 +1,8 @@
 module PointProcesses
 
-greet() = print("Hello World!")
+using Distributions, Distributed, Gadfly
+
+include("utils/samples.jl")
+export Poisson
 
 end # module
