@@ -1,6 +1,6 @@
 import Base.rand
 
-# TODO: create method to sample from inhomogeneous point process. **NOTE**: a trick is to require the impulse response to come from a family that is a valid distribution (or related to one) such that it integrates to 1.0 (or another known value).
+# TODO: consolidate homogeneous and inhomogeneous point processes!
 
 """
 A univariate homogeneous point process.
@@ -9,22 +9,96 @@ struct PointProcess
     λ
 end
 
+
 """
 Construct a random sample from homogeneous point process `p` on interval [0, `T`].
 """
-function rand(p::PointProcess, T = 1.)
+function rand(p::PointProcess, T::Float64 = 1.)
     n = rand(Poisson(p.λ * T))
-    ts = rand(Uniform(), n)
+    ts = rand(Uniform(0, T), n)
     return ts
 end
+
+# TODO: match Distributions API
+function rand(p::PointProcess, T::Float64 = 1., n::Int32 = 1)
+    if n == 1
+        n = rand(Poisson(p.λ * T))
+        ts = rand(Uniform(), n)
+        return ts
+    elseif n > 1
+        ts = []
+        for i = 1:n
+            n = rand(Poisson(p.λ * T))
+            ts.append(rand(Uniform(), n))
+        end
+        return ts
+    else
+        @error "Sample size `n` must be positive"
+    end
+end
+
+
+"""
+A univariate inhomogeneous point process. The intensity is given by `λ x h(t)`
+"""
+struct InhomogeneousPointProcess
+    h::Distribution
+    λ
+    function InhomogeneousPointProcess(h, λ)
+        supp = support(h)
+        if (typeof(supp) != RealInterval)
+            @error "Support of `h` must be continuous"
+            return nothing
+        end
+        if (supp.lb < 0)
+            @error "Support of `h` must be positive"
+            return nothing
+        end
+        return new(h, λ)
+    end
+end
+
+
+"""
+Construct a random sample from inhomogeneous point process `p` on interval [0, `T`].
+"""
+function rand(p::InhomogeneousPointProcess, T::Float64 = 1.)
+    s = cdf(p.h, T)
+    n = rand(Poisson(p.λ * s))
+    ts = rand(truncated(p.h, 0., T), n)
+    return ts
+end
+
+# TODO: match Distributions API
+function rand(p::InhomogeneousPointProcess, n::Int32 = 1)
+    if n == 1
+        ts = rand(p.h, rand(Poisson(p.λ)))
+        return ts
+    elseif n > 1
+        ts = []
+        for i = 1:n
+            ts.append(rand(p.h, rand(Poisson(p.λ))))
+        end
+        return ts
+    else
+        @error "Sample size `n` must be positive"
+    end
+end
+
 
 """
 A univariate Hawkes process.
 """
 struct HawkesProcess
     λ
-    h  # impulse response
+    h::Distribution  # impulse response
     tmax  # maxiumum response
+    function HawkesProcess(λ, h, tmax)
+
+        # check that λ, h, and tmax are kosher...
+
+        new(λ, h, tmax)
+    end
 end
 
 """
