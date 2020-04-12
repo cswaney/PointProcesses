@@ -2,145 +2,100 @@ using Distributions
 import Base.rand
 
 
-abstract type Integrable end
+abstract type PoissonProcess end
 
 """
-A univariate, piecewise linear function.
-
-The function is defined by `n + 1` endpoints and `n` slopes.
-"""
-struct UnivariateLinear <: Integrable
-    xs
-    ms
-    b0
-    function UnivariateLinear(b0, xs, ms)
-        if length(xs) != length(ms) + 1
-            @error "Length mismatch"
-        end
-        return new(xs, ms, b0)
-    end
-end
-
-
-"""
-integrate(f::UnivariateLinear)
-
-Integrate `f` over its domain.
-"""
-function integrate(f::UnivariateLinear)
-    res = 0.
-    b = f.b0
-    F(x, m, b) = 0.5 * m * x ^ 2 + b * x
-    for (i, x) in enumerate(f.xs[1:end - 1])
-        m = f.ms[i]
-        xnext = f.xs[i + 1]
-        res += F(xnext - x, m, b) - F(0, m, b)
-        @info "x=$x, xnext=$xnext, b=$b, m=$m"
-        b += (xnext - x) * m
-    end
-    return res
-end
-
-
-function evaluate(f::UnivariateLinear, x0)
-    if x0 > f.xs[end] || x0 < f.xs[1]
-        @error "`x0` outside of domain of `f`"
-    end
-    y = f.b0
-    for (i, x) in enumerate(f.xs[1:end - 1])
-        m = f.ms[i]
-        xnext = f.xs[i + 1]
-        if (x <= x0 < xnext)
-            return y + (x0 - x) * m
-        else
-            y += (xnext - x) * m
-        end
-    end
-    return y
-end
-
-
-support(f::UnivariateLinear) = (f.xs[1], f.xs[end])
-
-function isnonnegative(f::UnivariateLinear)
-    b = f.b0
-    for (i, x) in enumerate(f.xs[1, end - 1])
-        m = f.ms[i]
-        xnext = f.xs[i + 1]
-        b += (xnext - x) * m
-        b < 0. && return false
-    end
-    return true
-end
-
-"""
-A univariate point process.
-
-The intensity is given by `λ(t) = λ x h(t)`, where `h` is a valid probability distribution or a piecewise linear function.
-
-- `λ::Float64`: intensity "multiplier".
-- `h::Distribution`: intensity shape function (defaults to uniform/constant).
-"""
-struct PointProcess
-    λ::Float64
-    h::Union{Distribution,UnivariateLinear,Nothing}
-    function PointProcess(λ, h)
-        assert_nonnegative(λ, "`λ` must be nonnegative")
-        !isnothing(h) && assert_valid_intensity(h)
-        return new(λ, h)
-    end
-end
-
-PointProcess(λ) = PointProcess(λ, nothing)
-
-
-"""
-rand(p::PointProcess, T::Float64)
+rand(p::PoissonProcess, T::Float64)
 
 Construct a random sample from a point process `p` on interval [0, `T`].
 
 First, generate a number of events, `n`. Second, independently sample the time of each event using normalized intensity.
 """
-function rand(p::PointProcess, T::Float64)
-    if isnothing(p.h)
-        n = rand(Poisson(p.λ * T))
-        ts = rand(Uniform(0, T), n)
-        return sort(ts)
-    elseif typeof(p.h) <: Distribution
-        s = cdf(p.h, T)
-        n = rand(Poisson(p.λ * s))
-        ts = rand(truncated(p.h, 0., T), n)
-        return sort(ts)
-    elseif typeof(p.h) <: Integrable
-        @error "Not implemented"
-        # s = integral(p.h, [0, T])
-        # n = rand(Poisson(p.λ * s))
-        # ts = rand()
-        # return sort(ts)
-    end
+function rand(p::PoissonProcess, T) end
+
+
+"""
+A homogeneous Poisson process.
+"""
+struct HomogeneousProcess <: PoissonProcess
+    λ
+end
+
+intensity(p::HomogeneousProcess) = t -> p.λ
+function likelihood(p::HomogeneousProcess, ts, T)
+    a = exp(-p.λ * T)
+    b = p.λ ^ length(ts)
+    return a * b
+end
+function rand(p::HomogeneousProcess, T)
+    n = rand(Poisson(p.λ * T))
+    ts = rand(Uniform(0, T), n)
+    return sort(ts)
 end
 
 
-function intensity(p::PointProcess)
-    if isnothing(p.h)
-        return t -> p.λ
-    elseif typeof(p.h) <: Distribution
-        return t -> p.λ * pdf(p.h, t)
-    elseif typeof(p.h) <: Integrable
-        return t -> p.λ * evaluate(p.h, t)
-    end
+"""
+A Poisson process with linear intensity function.
+"""
+struct LinearProcess <: PoissonProcess
+    b
+    w
+end
+
+intensity(p::LinearProcess) = t -> p.b + p.w * t
+function likelihood(p::LinearProcess, ts, T)
+    @warn "TODO: assert that linear intensity is non-negative on [0, T]."
+    a = exp(-(0.5 * p.m * T ^ 2 + p.b * T))
+    b = prod(p.m .* ts .+ p.b)
+    return a * b
+end
+function rand(p::LinearProcess, T)
+    @error "Method not implemented"
+end
+
+
+"""
+A Poisson process with Exponential distribution intensity function.
+"""
+struct ExponentialProcess <: PoissonProcess
+    w
+    θ
+end
+
+intensity(p::ExponentialProcess) = t -> p.w * pdf(Exponential(p.θ), t)
+function likelihood(p::ExponentialProcess, ts, T)
+    h = Exponential(p.θ)
+    a = exp(-p.w * cdf(h, T))
+    b = prod(p.w * pdf.(h, ts))
+    return a * b
+end
+function rand(p::ExponentialProcess, T)
+    h = Exponential(p.θ)
+    n = rand(Poisson(p.w * cdf(h, T)))
+    ts = rand(truncated(h, 0., T), n)
+    return sort(ts)
 end
 
 """
-
-Compute the likelihood of events `ts` given point process `p` and time interval `[0, T]`.
+A Poisson process with LogitNormal distribution intensity function.
 """
-function likelihood(p::PointProcess, ts, T)
-    if isnothing(p.h)
-        return exp(-p.λ * T) * p.λ^length(ts)
-    elseif typeof(p.h) <: Distribution
-        return exp(-cdf(p.h, T)) * prod(intensity(p).(ts))
-    elseif typeof(p.h) <: Integrable
-        return exp(-integral(p.h, T)) * prod(intensity(p).(ts))
-    end
+struct LogitNormalProcess <: PoissonProcess
+    w
+    μ
+    τ
+    Δtmax
+end
+
+intensity(p::LogitNormalProcess) = t -> p.w * pdf(LogitNormal(p.μ, p.τ), t / p.Δtmax)
+function likelihood(p::LogitNormalProcess, ts, T)
+    d = LogitNormal(p.μ, p.τ)
+    a = exp(-p.w * cdf(d, T / p.Δtmax))
+    b = prod(p.w * pdf.(d, ts ./ p.Δtmax))
+    return a * b
+end
+function rand(p::LogitNormalProcess, T)
+    h = LogitNormal(p.μ, p.τ)
+    n = rand(Poisson(p.w * cdf(h, T / p.Δtmax)))
+    ts = rand(truncated(h, 0., T / p.Δtmax), n)
+    return sort(ts)
 end
