@@ -1,3 +1,4 @@
+using Printf
 import Base.rand
 
 
@@ -33,17 +34,28 @@ struct NetworkHawkes
 end
 
 
-function assert_nonnegative(x, msg)
-    if any(x .< 0)
-        @error msg
-    end
+function NetworkHawkes()
+    λ0 = 0.1 * ones(2)
+    A = ones(2, 2)
+    W = 0.1 * ones(2, 2)
+    μ = zeros(2, 2)
+    τ = ones(2, 2)
+    ρ = ones(2, 2)
+    K = 2
+    Δtmax = 1.
+    return NetworkHawkes(λ0, A, W, μ, τ, ρ, K, Δtmax)
 end
 
-
-function assert_probability(x, msg)
-    if any(x .> 1) || any(x .< 0)
-        @error msg
-    end
+function NetworkHawkes(params)
+    λ0 = params[:λ0]
+    A = params[:A]
+    W = params[:W]
+    μ = params[:μ]
+    τ = params[:τ]
+    ρ = params[:ρ]
+    K = params[:κ]
+    Δtmax = params[:Δtmax]
+    return NetworkHawkes(λ0, A, W, μ, τ, ρ, K, Δtmax)
 end
 
 
@@ -163,7 +175,7 @@ function intensity(p::NetworkHawkes, events, nodes, t0)
     events = events[idx]
     nodes = nodes[idx]
     # filter
-    idx = t0 - p.tmax .< events .< t0
+    idx = t0 - p.Δtmax .< events .< t0
     events = events[idx]
     nodes = nodes[idx]
     # calculate
@@ -196,6 +208,34 @@ function intensity(p::NetworkHawkes, events, t0)
 end
 
 
-function likelihood(p::NetworkHawkes, events) end
-function jointprobability(p::NetworkHawkes, events) end
-function stability(p::NetworkHawkes) end
+"""
+likelihood(p::NetworkHawkes, events, nodes, parents)
+
+Calculate the augmented likelihood of `events`, `nodes`, and `parents` given process `p`.
+"""
+function likelihood(p::NetworkHawkes, events, nodes, parents)
+    # part one: baseline contribution
+    # - for each child node
+    # - contribution is exp(-T * λ[i])
+    # - multiply by
+
+    # part two: endogenous contribution
+    # - for each child node
+    # - for each parent node
+    # - for each event
+    # - if event < T - Δtmax
+    #   - event contributes a full bump, W[i, j]
+    # - else
+    #   - event contributes partial bump—can calculate by integrating distn...
+    # - multiply impulse response evaluated at event time...
+end
+
+
+"""
+stability(p::NetworkHawkes)
+
+Calculate the stability of process `p`. We say that `p` is stable if the retun value is less than one.
+"""
+function stability(p::NetworkHawkes)
+    return maximum(abs(p.A .* p.W))
+end

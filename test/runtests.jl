@@ -11,4 +11,6 @@ function (≜)(a::T, b::T) where {T}
     return all(bools)
 end
 
-include("samples.jl")
+# include("poisson.jl")
+include("hawkes.jl")
+# include("network_hawkes.jl")

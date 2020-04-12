@@ -1,79 +1,147 @@
 """
 A univariate Hawkes process.
+
+- `λ::Float64`: baseline intensity parameter.
+- `w::Float64`: self-excitement strength parameter.
+- `h::Distribution`: impulse-reponse function.
+- `Δtmax::Float64`: maximum lag parameter.
 """
-struct HawkesProcess
-    λ::Float64
+struct UnivariateHawkes
+    λ0::Float64
+    w::Float64
     h::Distribution
-    # tmax::Float64  # TODO
-    function HawkesProcess(λ, h)
-        # check `λ`
-        if λ < 0
-            @error "Intensity must be non-negative"
-            return nothing
-        end
-        # check `h`
-        supp = support(h)
-        if (typeof(supp) != RealInterval)
-            @error "Support of `h` must be continuous"
-            return nothing
-        end
-        if (supp.lb < 0)
-            @error "Support of `h` must be positive"
-            return nothing
-        end
-        # check `tmax`
-        # if tmax < 0
-        #     @error "Maximum lag must be non-negative"
-        # end
-        return new(λ, h)
-        new(λ, h, tmax)
+    Δtmax::Float64
+    function UnivariateHawkes(λ0, w, h, Δtmax)
+        assert_nonnegative(λ0, "`λ0` must be non-negative")
+        assert_nonnegative(w, "`w` must be non-negative")
+        assert_nonnegative(Δtmax, "`Δtmax` must be non-negative")
+        assert_distribution(h)
+        return new(λ0, w, h, Δtmax)
     end
 end
 
-"""
-Sample events from a univariate Hawkes Process, `p`, on interval `[0, T]`.
-"""
-function rand(p::HawkesProcess, T = 1.)
+function UnivariateHawkes(λ0, w, h)
+    return UnivariateHawkes(λ0, w, h, Inf)
+end
 
-    function sampleBranch(parent::PointProcess, t0, events)
-        # sample children from parent
-        childTimes = t0 .+ rand(parent, T - t0)
-        @info "t0=$(t0)"
-        @info "children=$(childTimes)"
-        if length(childTimes) > 0
-            # append children to events
-            append!(events, childTimes)
-            # call sample on each child
-            for t0 in childTimes
-                childProcess = PointProcess(1., p.h)
-                sampleBranch(childProcess, t0, events)
+"""
+rand(p::UnivariateHawkes, T::Float64)
+
+Sample events from a univariate Hawkes Process, `p`, on the interval `[0, T]`.
+"""
+function rand(p::UnivariateHawkes, T::Float64)
+
+    function samplebranch(parent::PointProcess, t0, events)
+        if t0 + p.Δtmax > T
+            childEvents = t0 .+ rand(parent, T - t0)
+        else
+            childEvents = t0 .+ rand(parent, parent.Δtmax)
+        end
+        @info "children=$(childEvents)"
+        if length(childEvents) > 0
+            append!(events, childEvents)
+            for t0 in childEvents
+                @info @sprintf("generating children for event (%.2f)...", t0)
+                samplebranch(PointProcess(p.w, p.h), t0, events)
             end
         end
     end
 
     events = []
-    rootProcess = PointProcess(p.λ)
-    sampleBranch(rootProcess, 0., events)
+    rootProcess = PointProcess(p.λ0)
+    @info "generating root events..."
+    rootEvents = rand(rootProcess, T)
+    @info "rootEvents=$rootEvents"
+    append!(events, rootEvents)
+    for t0 in rootEvents
+        parent = PointProcess(p.w, p.h)
+        @info @sprintf("generating children for event (%.2f)...", t0)
+        samplebranch(parent, t0, events)
+    end
 
     return sort(events)
 end
 
 
-struct MultivariateHawkes
-    λ::Array{Float64, 1}  # λ[i] = baseline intensity i
-    H::Array{Distribution, 2}  # H[i, j] = impulse response i -> j
-    # tmax::Float64
+"""
+intensity(p::UnivariateHawkes, ts, t0)
 
-    # inner constructor...
+Calculate the intensity of Hawkes process `p` at time `t0` given events `ts`.
+"""
+function intensity(p::UnivariateHawkes, ts, t0)
+    sort!(ts)
+    ts = ts[t0 - p.Δtmax .< ts .< t0]
+    if length(ts) == 0
+        return p.λ0
+    else
+        return p.λ0 + sum(p.w .* pdf.(p.h, t0 .- ts))
+    end
 end
 
-function rand(p::MultivariateHawkes, T::Float64 = 1.)
+impulse_response(p::UnivariateHawkes, t, t0) = pdf(p.h, t - t0)
 
-    nchannels = length(p.λ)
+"""
+likelihood(p::UnivariateHawkes, ts)
+
+Calculate the likelihood of events `ts` given univariate Hawkes process `p`.
+"""
+function likelihood(p::UnivariateHawkes, ts)
+    # 
+end
+
+
+"""
+A multivariate Hawkes process.
+
+- `λ0::Array{Float64,1}`: baseline intensity parameter.
+- `W::Array{Float64,2}`: matrix of excitement strength parameters.
+- `H::Array{Distribution,2}`: matrix of impulse-reponse functions.
+- `Δtmax::Float64`: maximum lag parameter.
+"""
+struct MultivariateHawkes
+    λ0::Array{Float64, 1}  # λ[i] = baseline intensity i
+    W::Array{Float64,2}
+    H::Array{Distribution{Univariate,Continuous}, 2}  # H[i, j] = impulse response i -> j
+    Δtmax::Float64
+    function MultivariateHawkes(λ0, W, H, Δtmax)
+        if any(λ0 .< 0)
+            @error "Intensity must be non-negative"
+            return nothing
+        end
+        if any(W .< 0)
+            @error "Self-excitement strength must be non-negative"
+            return nothing
+        end
+        for idx in eachindex(H)
+            if support(H[idx]) != RealInterval(0., 1.)
+                @error "Support of impulse-response functions must be [0., 1.]"
+                return nothing
+            end
+        end
+        if Δtmax < 0
+            @error "Maximum lag must be non-negative"
+            return nothing
+        end
+        return new(λ0, W, H, Δtmax)
+    end
+end
+
+function rand(p::MultivariateHawkes, T::Float64)
+
+    # other way to do this...
+    # events = []
+    # nodes = []
+    # generate events and append times to `events`, node to `nodes`
+
+    nchannels = length(p.λ0)
 
     function sampleBranch(parent, t0, events)
         for childChannel = 1:nchannels
-            childEvents = t0 .+ rand(parent, T - t0)
+            if t0 + p.Δtmax > T
+                childEvents = t0 .+ rand(parent, (T - t0) / p.Δtmax) * p.Δtmax
+            else
+                childEvents = t0 .+ rand(parent, 1.) * p.Δtmax
+            end
             @info "t0=$(t0)"
             @info "c=$(childChannel)"
             @info "children=$(childEvents)"
@@ -81,7 +149,9 @@ function rand(p::MultivariateHawkes, T::Float64 = 1.)
             parentChannel = childChannel
             for parentTime in childEvents
                 for childChannel = 1:nchannels
-                    parent = PointProcess(1., p.H[parentChannel, childChannel])
+                    w = p.W[parentChannel, childChannel]
+                    h = p.H[parentChannel, childChannel]
+                    parent = PointProcess(w, h)
                     sampleBranch(parent, parentTime, events)
                 end
             end
@@ -89,23 +159,25 @@ function rand(p::MultivariateHawkes, T::Float64 = 1.)
     end
 
     events = []
+    nodes = []
     for parentChannel = 1:nchannels
-        parentProcess = PointProcess(p.λ[parentChannel])
+        parentProcess = PointProcess(p.λ0[parentChannel])
         childEvents = rand(parentProcess, T)
         @info "t0=0"
         @info "parentChannel=$(parentChannel)"
         @info "childEvents=$(childEvents)"
         push!(events, childEvents)
     end
-    @info events
     for parentChannel = 1:nchannels
-        for parentTime in events[parentChannel]
-            @info parentTime
+        for parentEvent in events[parentChannel]
+            @info "parentEvent=$parentEvent"
             for childChannel = 1:nchannels
                 @info childChannel
-                parent = PointProcess(1., p.H[parentChannel, childChannel])
-                @info parent
-                sampleBranch(parent, parentTime, events)
+                w = p.W[parentChannel, childChannel]
+                h = p.H[parentChannel, childChannel]
+                parent = PointProcess(w, h)
+                @info "parent=$parent"
+                sampleBranch(parent, parentEvent, events)
             end
         end
     end
@@ -119,46 +191,75 @@ end
 
 
 """
-Calculate the intensity of a process given a sequence of events.
+Consolidate events from `rand` into a single stream and return a sequence of events times and nodes.
 """
-function intensity(p::HawkesProcess, ts, t0)
-    sort!(ts)  # NOTE: make sure events are ordered1
-    ts = ts[ts .< t0]
-    if length(ts) == 0
-        return p.λ
-    else
-        return p.λ + sum(pdf.(p.h, t0 .- ts))
+function consolidate(events)
+    s = Array{Float64,1}()
+    c = Array{Int32,1}()
+    for (idx, stream) in enumerate(events)
+        append!(s, stream)
+        append!(c, idx * ones(length(stream)))
     end
+    idx = sortperm(s)
+    return s[idx], c[idx]
 end
 
 
+
+function intensity(p::UnivariateHawkes, ts, xs::Array{Float64,1})
+    ys = Array{Float64,1}()
+    for x in xs
+        y = intensity(p, ts, x)
+        push!(ys, y)
+    end
+    return ys
+end
+
 """
-Calculate the intensity of a process given a sequence of events.
+Calculate the intensity at time `t0` of a process given events `ts`.
 
 Assume the `ts` is an array of arrays.
 """
 function intensity(p::MultivariateHawkes, ts, t0)
-    nchannels = length(ts)
+    nchannels = length(p.λ0)
     sort!.(ts)  # TODO: is this necessary???
     for i = 1:nchannels
         ts[i] = ts[i][ts[i] .< t0]
     end
-    λ = zeros(length(p.λ))
+    λ = zeros(nchannels)
     for i = 1:nchannels
         # compute intensity of channel `i`
         for j = 1:nchannels
             # add contribution from events on channel `j`
-            λ[i] += sum(pdf.(p.H[j, i], t0 .- ts[j]))
+            λ[i] += sum(W[j, i] .* pdf.(p.H[j, i], t0 .- ts[j]))
         end
     end
-    return p.λ + λ
+    return p.λ0 + λ
 end
 
+function intensity(p::MultivariateHawkes, ts, cs, t0)
+    nchannels = length(p.λ0)
+    # sort
+    idx = sortperm(ts)
+    ts = ts[idx]
+    cs = cs[idx]
+    # filter
+    idx = t0 - p.Δtmax .< ts .< t0
+    ts = ts[idx]
+    cs = cs[idx]
+    # calculate
+    λ = zeros(nchannels)
+    for i = 1:nchannels
+        for (s, c) in zip(ts, cs)
+            λ[i] += W[c, i] * pdf.(p.H[c, i], (t0 - s) / p.Δtmax)
+        end
+    end
+    return p.λ0 + λ
+end
+
+impulse_response(p::MultivariateHawkes, i, j, t, t0) = pdf(p.H[i, j], (t - t0) / p.Δtmax)
 
 
-# TODO
-function likelihood(p::PointProcess, ts) end
-function likelihood(p::HawkesProcess, ts) end
 function likelihood(p::MultivariateHawkes, ts)
 
     # first integral
@@ -168,8 +269,3 @@ function likelihood(p::MultivariateHawkes, ts)
     exp(cdf(p.H[i, j]))  # TODO: check H is defined on (0, T)
 
 end
-
-
-function joint_probability() end
-
-stability(p::NetworkHawkes) = max(abs.(eig(p.A .* p.W))) < 1
