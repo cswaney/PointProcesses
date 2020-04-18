@@ -48,8 +48,6 @@ An implementation of the network Hawkes model specified in Linderman, 2015.
 - `W::Array{Float64,2}`: matrix of network connection strength parameters.
 - `μ::Array{Float64,2}`: matrix of impulse-response mean parameters.
 - `τ::Array{Float64,2}`: matrix of impulse-response variance parameters.
-- `ρ::Array{Float64,2}`: matrix of class connection probabilities.
-- `K::Int32`: number of classes in stochastic block model.
 - `Δtmax::Float64`: maximum lag parameter.
 """
 struct NetworkHawkesProcess <: HawkesProcess
@@ -58,16 +56,13 @@ struct NetworkHawkesProcess <: HawkesProcess
     W::Array{Float64,2}
     μ::Array{Float64,2}
     τ::Array{Float64,2}
-    ρ::Array{Float64,2}
-    K::Int32
     Δtmax::Float64
-    function NetworkHawkesProcess(λ0, A, W, μ, τ, ρ, K, Δtmax)
+    function NetworkHawkesProcess(λ0, A, W, μ, τ, Δtmax)
         assert_nonnegative(λ0, "Intensity must be non-negative")
         assert_nonnegative(W, "Self-excitement strength must be non-negative")
         assert_nonnegative(τ, "Impulse-response variance must be non-negative")
-        assert_probability(ρ, "Connection likelihoods must be valid probabilities.")
         assert_nonnegative(Δtmax, "Maximum lag must be non-negative")
-        return new(λ0, A, W, μ, τ, ρ, K, Δtmax)
+        return new(λ0, A, W, μ, τ, Δtmax)
     end
 end
 
