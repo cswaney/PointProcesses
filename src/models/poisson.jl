@@ -103,22 +103,29 @@ A Poisson process with LogitNormal distribution intensity function.
 struct LogitNormalProcess <: PoissonProcess
     w
     μ
-    τ
+    τ  # τ = 1 / σ^2 (precision)
     Δtmax
 end
 
-intensity(p::LogitNormalProcess) = t -> p.w * pdf(LogitNormal(p.μ, p.τ), t / p.Δtmax)
+intensity(p::LogitNormalProcess) = t -> p.w * pdf(LogitNormal(p.μ, p.τ ^ (-1/2)), t / p.Δtmax)
 
 function likelihood(p::LogitNormalProcess, ts, T)
-    d = LogitNormal(p.μ, p.τ)
+    d = LogitNormal(p.μ, p.τ ^ (-1/2))
     a = exp(-p.w * cdf(d, T / p.Δtmax))
     b = prod(p.w * pdf.(d, ts ./ p.Δtmax))
     return a * b
 end
 
+# logit(x) = log(x / (1 - x))
+#
+# function logit_normal(μ, τ, x)
+#     Z = x * (1 - x) * (τ / (2 * π))^(-1/2)
+#     return (1 / Z) * exp(-τ / 2 * ( logit(x) - μ)^2)
+# end
+
 function rand(p::LogitNormalProcess, T)
     T = max(p.Δtmax, T)
-    h = LogitNormal(p.μ, p.τ)
+    h = LogitNormal(p.μ, p.τ ^ (-1/2))
     n = rand(Poisson(p.w * cdf(h, T / p.Δtmax)))
     ts = rand(truncated(h, 0., T / p.Δtmax), n)
     return sort(ts)
