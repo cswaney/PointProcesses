@@ -3,10 +3,10 @@ module PointProcesses
 using Distributions, Distributed, Gadfly, Printf
 import Base.rand
 
-include("utils/normal_gamma.jl")
+include("utils/distributions.jl")
 export NormalGamma
 
-include("utils/assert.jl")
+include("utils/assertions.jl")
 export assert_nonnegative,
        assert_distribution,
        assert_probability
@@ -18,9 +18,20 @@ export PoissonProcess,
        ExponentialProcess,
        LogitNormalProcess
 
-include("models/hawkes.jl")
+include("models/HawkesProcess.jl")
 export HawkesProcess,
-       NetworkHawkesProcess,
-       ExponentialHawkesProcess
+       rand,
+       loglikelihood,
+       intensity,
+       impulse_response,
+       stability
+
+include("models/NetworkHawkesProcess.jl")
+export NetworkHawkesProcess
+
+include("inference/mcmc/mcmc.jl")
+export mcmc
+
+include("inference/mcmc/NetworkHawkesProcess.jl")
 
 end # module
