@@ -2,6 +2,8 @@ abstract type Network end
 
 function rand(m::Network) end
 
+function sample!(m::Network) end
+
 
 """
     A network with i.i.d Bernoulli connections: A[n, m] ~ Bernoulli(ρ).
@@ -80,7 +82,6 @@ function rand(network::StochasticBlockNetwork, n::Int32)
     return data
 end
 
-dense(onehots) = vec([idx.I[1] for idx in argmax(onehots, dims=1)])
 
 function likelihood(network::StochasticBlockNetwork, A)
     p = 1.
