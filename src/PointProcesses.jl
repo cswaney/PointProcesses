@@ -29,9 +29,13 @@ export HawkesProcess,
 include("models/NetworkHawkesProcess.jl")
 export NetworkHawkesProcess
 
+include("models/BernoulliNetworkHawkesProcess.jl")
+export BernoulliNetworkHawkesProcess
+
 include("inference/mcmc/mcmc.jl")
 export mcmc
 
 include("inference/mcmc/NetworkHawkesProcess.jl")
+include("inference/mcmc/BernoulliNetworkHawkesProcess.jl")
 
 end # module
