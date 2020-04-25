@@ -13,7 +13,7 @@ function sample_weights!(p::HawkesProcess, events, nodes, parent_nodes)
     Mn = node_counts(nodes, p.N)
     Mnm = parent_counts(nodes, parent_nodes, p.N)
     κ = p.κ .+ Mnm
-    ν = p.ν .+ Mn
+    ν = p.ν .+ Mn .* p.A
     p.W = rand.(Gamma.(κ, 1 ./ ν))
     return copy(p.W)
 end
@@ -126,16 +126,16 @@ If `A[i,j] == 0` or `W[i,j] ≈ 0`, there will be no events on node `j` with lat
 function sample_impulse_response!(p::HawkesProcess, events, nodes, parents, parentnodes)
     Mnm = parent_counts(nodes, parentnodes, p.N)
     Xnm = log_duration_mean(events, nodes, parents, p.N, p.Δtmax)
-    if any(isnan.(Xnm))
-        @warn "`Xnm` contains `NaN`s. This typically means that there were no parent-child observations for some combination of nodes."
-    end
-    Vnm = log_duration_volatility(Xnm, events, nodes, parents, p.N, p.Δtmax)
+    # if any(isnan.(Xnm))
+    #     @warn "`Xnm` contains `NaN`s. This typically means that there were no parent-child observations for some combination of nodes."
+    # end
+    Vnm = log_duration_variation(Xnm, events, nodes, parents, p.N, p.Δtmax)
     μnm = fillna!((p.κμ .* p.μμ .+ Mnm .* Xnm) ./ (p.κμ .+ Mnm), p.μμ)  # use prior if no observation on connection
     κnm = p.κμ .+ Mnm  # NOTE: equals κμ if no obs. on connection
     αnm = p.ατ .+ Mnm ./ 2  # NOTE: equals κμ if no obs. on connection
     βnm = fillna!(Vnm ./ 2 .+ Mnm .* p.κμ ./ (Mnm .+ p.κμ) .* (Xnm .- p.μμ).^2 ./2, p.βτ)
     p.τ = rand.(Gamma.(αnm, 1 ./ βnm))
-    σ = (1 ./ (κnm * p.τ)) .^ (1 / 2)
+    σ = (1 ./ (κnm .* p.τ)) .^ (1 / 2)
     p.μ = rand.(Normal.(μnm, σ))
     return copy(p.μ), copy(p.τ)
 end
@@ -167,7 +167,7 @@ function log_duration_mean(events, nodes, parents, size, Δtmax)
     return Xnm ./ Mnm
 end
 
-function log_duration_volatility(Xnm, events, nodes, parents, size, Δtmax)
+function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
     M = length(events)
     Vnm = zeros(size, size)
     for (event, node, parent) in zip(events, nodes, parents)
@@ -186,18 +186,74 @@ sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
 
     Sample the conditional posterior distribution of the adjacency matrix, `A`.
 """
-function sample_adjacency_matrix!(process::HawkesProcess, events, nodes, parents, T)
-    L = link_probability(process)
-    I = hcat([intensity(process, events, nodes, t0) for t0 in events]...)  # N x M
+function sample_adjacency_matrix!(p::HawkesProcess, events, nodes, T)
     Mn = node_counts(nodes, p.N)
-    for i = 1:processs.N
-        integral = process.λ0 * T + sum(p.A[:, i] .* process.W[:, i] .* Mn)
-        idx = nodes[nodes == i]
-        product = prod(I[i, idx])
-        process.A[:, i] = rand(Bernoulli(integral .* product .* L[:, i]))
+    L = link_probability(p)
+    for j = 1:p.N  # columns
+        for i = 1:p.N  # rows
+            # Set A[i, j] = 0
+            ll0a = integrated_intensity(p, T, Mn, 0, i, j)
+            ll0b = sum(log.(conditional_intensity(p, events, nodes, 0, i, j)))
+            ll0 = -ll0a + ll0b + log(1 - L[i, j])
+            # Set A[i, j] = 1
+            ll1a = integrated_intensity(p, T, Mn, 1, i, j)
+            ll1b = sum(log.(conditional_intensity(p, events, nodes, 1, i, j)))
+            ll1 = -ll1a + ll1b + log(L[i, j])
+            # Sample A[i, j]
+            Z = logsumexp(ll0, ll1)
+            ρ = exp(ll1 - Z)
+            if i == j == 2
+                @info "p(a22 = 1 | ...) = $ρ"
+            end
+            p.A[i, j] = rand.(Bernoulli.(ρ))
+        end
     end
-    return copy(process.A)
+    return copy(p.A)
 end
+
+function integrated_intensity(p::HawkesProcess, T, Mn, a, i, j)
+    """Calculate the integral of the intensity of the `j`-th node, setting `A[i, j] = a`."""
+    lla = p.λ0[j] * T
+    for k = 1:p.N
+        if k == i
+            lla += a * p.W[k, j] * Mn[k]
+        else
+            lla += p.A[k, j] * p.W[k, j] * Mn[k]
+        end
+    end
+    return lla
+end
+
+function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
+    """Compute intensity on node `cidx` at every event conditional on `A[pidx, cidx] == a`."""
+    λ = ones(length(events))
+    ir = impulse_response(p)
+    for (index, (event, node)) in enumerate(zip(events, nodes))
+        node != cidx && continue
+        λ[index] = p.λ0[node]
+        index == 1 && continue
+        parentindex = index - 1
+        while events[parentindex] > event - p.Δtmax
+            parentevent = events[parentindex]
+            parentnode = nodes[parentindex]
+            Δt = event - parentevent
+            if parentnode == pidx
+                λ[index] += a * ir[parentnode, node](Δt)  # A[parentnode, node] = a
+            else
+                λ[index] += p.A[parentnode, node] * ir[parentnode, node](Δt)
+            end
+            parentindex -= 1
+            parentindex == 0 && break
+        end
+    end
+    return λ
+end
+
+function logsumexp(a, b)
+    m = max(a, b)
+    return m + log(exp(a - m) + exp(b - m))
+end
+
 
 
 """
@@ -234,9 +290,9 @@ function sample_parent(p::HawkesProcess, event, node, index, events, nodes)
         if p.A[parentnode, node] == 1
             append!(λs, ir[parentnode, node](event - parenttime))
             append!(parentindices, parentindex)
-            parentindex -= 1
-            parentindex == 0 && break
         end
+        parentindex -= 1
+        parentindex == 0 && break
     end
     append!(λs, p.λ0[node])
     append!(parentindices, 0)
