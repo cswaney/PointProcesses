@@ -16,7 +16,7 @@ length(s::NormalGammaSampler) = 2
 
 import Distributions._rand!
 function _rand!(rng::AbstractRNG, s::NormalGammaSampler, x::AbstractVector{<:Real})
-    T = rand(Gamma(s.α, s.β))
+    T = rand(Gamma(s.α, 1 / s.β))  # Distributions.Gamma uses rate (θ = 1 / β)
     V = 1 / (s.λ * T)
     z = rand(Normal(s.μ, sqrt(V)))
     x[1] = z
