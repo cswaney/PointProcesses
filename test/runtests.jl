@@ -12,5 +12,6 @@ function (≜)(a::T, b::T) where {T}
 end
 
 # include("poisson.jl")
-include("hawkes.jl")
+# include("hawkes.jl")
 # include("network_hawkes.jl")
+include("mcmc.jl")
