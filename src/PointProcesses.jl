@@ -4,38 +4,32 @@ using Distributions, Distributed, Gadfly, Printf
 import Base.rand
 
 include("utils/distributions.jl")
-export NormalGamma
-
 include("utils/assertions.jl")
-export assert_nonnegative,
-       assert_distribution,
-       assert_probability
 
 include("models/poisson.jl")
+include("models/HawkesProcess.jl")
+include("models/NetworkHawkesProcess.jl")
+include("models/BernoulliNetworkHawkesProcess.jl")
+include("models/StochasticBlockNetworkHawkesProcess.jl")
 export PoissonProcess,
        HomogeneousProcess,
        LinearProcess,
        ExponentialProcess,
-       LogitNormalProcess
-
-include("models/HawkesProcess.jl")
-export HawkesProcess,
+       LogitNormalProcess,
+       HawkesProcess,
        rand,
        loglikelihood,
        intensity,
        impulse_response,
-       stability
-
-include("models/NetworkHawkesProcess.jl")
-export NetworkHawkesProcess
-
-include("models/BernoulliNetworkHawkesProcess.jl")
-export BernoulliNetworkHawkesProcess
+       stability,
+       NetworkHawkesProcess,
+       BernoulliNetworkHawkesProcess,
+       StochasticBlockNetworkHawkesProcess
 
 include("inference/mcmc/mcmc.jl")
-export mcmc
-
 include("inference/mcmc/NetworkHawkesProcess.jl")
 include("inference/mcmc/BernoulliNetworkHawkesProcess.jl")
+include("inference/mcmc/StochasticBlockNetworkHawkesProcess.jl")
+export mcmc
 
 end # module
