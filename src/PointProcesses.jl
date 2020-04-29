@@ -1,6 +1,6 @@
 module PointProcesses
 
-using Distributions, Distributed, Gadfly, Printf
+using Distributions, Distributed, SharedArrays, Gadfly, Printf
 import Base.rand
 
 include("utils/distributions.jl")
@@ -11,6 +11,7 @@ include("models/HawkesProcess.jl")
 include("models/NetworkHawkesProcess.jl")
 include("models/BernoulliNetworkHawkesProcess.jl")
 include("models/StochasticBlockNetworkHawkesProcess.jl")
+include("models/ExponentialHawkes.jl")
 export PoissonProcess,
        HomogeneousProcess,
        LinearProcess,
@@ -24,12 +25,14 @@ export PoissonProcess,
        stability,
        NetworkHawkesProcess,
        BernoulliNetworkHawkesProcess,
-       StochasticBlockNetworkHawkesProcess
+       StochasticBlockNetworkHawkesProcess,
+       ExponentialHawkesProcess
 
 include("inference/mcmc/mcmc.jl")
 include("inference/mcmc/NetworkHawkesProcess.jl")
 include("inference/mcmc/BernoulliNetworkHawkesProcess.jl")
 include("inference/mcmc/StochasticBlockNetworkHawkesProcess.jl")
+include("inference/mcmc/ExponentialHawkesProcess.jl")
 export mcmc
 
 end # module
