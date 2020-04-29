@@ -58,7 +58,7 @@ Method called by `rand(p::HawkesProcess, T::Float64)` to generate child events f
 - `parentchannel::Int64`: channel of the event generating children.
 - `process::HawkesProcess`: the root process being sampled.
 """
-function generate!(events, parentevent, parentchannel, process, T)
+function generate!(events, parentevent, parentchannel, process::HawkesProcess, T)
     t0 = parentevent
     nchannels = process.N
     for childchannel = 1:nchannels
@@ -69,6 +69,7 @@ function generate!(events, parentevent, parentchannel, process, T)
             τ = process.τ[parentchannel, childchannel]
             parent = LogitNormalProcess(w, μ, τ, process.Δtmax)
             childevents = t0 .+ rand(parent, T - t0)
+            # TODO: filter childevents < T! (Shouldn't need to based on T - t0 above...)
             # @info "childevents=$childevents"
             append!(events[childchannel], childevents)
             isempty(childevents) && continue
