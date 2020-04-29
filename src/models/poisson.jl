@@ -77,20 +77,20 @@ A Poisson process with Exponential distribution intensity function.
 """
 struct ExponentialProcess <: PoissonProcess
     w
-    θ
+    θ  # rate  = 1 / scale
 end
 
 intensity(p::ExponentialProcess) = t -> p.w * pdf(Exponential(p.θ), t)
 
 function likelihood(p::ExponentialProcess, ts, T)
-    h = Exponential(p.θ)
+    h = Exponential(1 / p.θ)
     a = exp(-p.w * cdf(h, T))
     b = prod(p.w * pdf.(h, ts))
     return a * b
 end
 
 function rand(p::ExponentialProcess, T)
-    h = Exponential(p.θ)
+    h = Exponential(1 / p.θ)
     n = rand(Poisson(p.w * cdf(h, T)))
     ts = rand(truncated(h, 0., T), n)
     return sort(ts)
