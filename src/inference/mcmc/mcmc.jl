@@ -259,6 +259,7 @@ function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
 end
 
 function pconditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
+    @warn "Use of `pconditional_intensity` is not recommended."
     data = enumerate(zip(events, nodes))
     λ = SharedArray(zeros(Float64, length(events)))
     @sync @distributed for index = 1:length(λ)
