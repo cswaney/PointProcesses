@@ -17,10 +17,9 @@ function mcmc(process::NetworkHawkesProcess, data, nsamples::Int64)
     _τ_ = Array{typeof(process.τ),1}(undef,nsamples)
     _W_ = Array{typeof(process.W),1}(undef,nsamples)
     for i = 1:nsamples
-        if i % 100 == 0
-            @info "i=$i"
-        end
-        parents = sample_parents(process, events, nodes)
+        i % 100 == 0 && @info "iteration=$i"
+        parents = psample_parents(process, events, nodes)
+        # parents = sample_parents(process, events, nodes)
         parentnodes = [get_parent_node(nodes, p) for p in parents]
         _λ0_[i] = sample_baseline!(process, nodes, parentnodes, T)
         _μ_[i], _τ_[i] = sample_impulse_response!(process, events, nodes, parents, parentnodes)

@@ -1,5 +1,14 @@
 # TODO: Modify to accomodate data with multiple series.
 
+# TODO: Remove replace parentnodes in arg list with parents and use nodes[parent]?
+
+# Speed-ups:
+# - Pre-compute node_counts, baseline_counts (values doesn't change throughout Gibbs sampling).
+
+# - Pre-compute parent_counts? Value doesn't change within each sample...
+# - In-place operations?
+# -
+
 """
 sample_weights(events, nodes, parents, θ)
 
@@ -125,7 +134,7 @@ If `A[i,j] == 0` or `W[i,j] ≈ 0`, there will be no events on node `j` with lat
 """
 function sample_impulse_response!(p::HawkesProcess, events, nodes, parents, parentnodes)
     Mnm = parent_counts(nodes, parentnodes, p.N)
-    Xnm = log_duration_mean(events, nodes, parents, p.N, p.Δtmax)
+    Xnm = log_duration_sum(events, nodes, parents, p.N, p.Δtmax) ./ Mnm
     # if any(isnan.(Xnm))
     #     @warn "`Xnm` contains `NaN`s. This typically means that there were no parent-child observations for some combination of nodes."
     # end
@@ -153,18 +162,19 @@ function log_duration(parent, child, Δtmax)
     return log((child - parent) / (Δtmax - (child - parent)))
 end
 
-function log_duration_mean(events, nodes, parents, size, Δtmax)
+function log_duration_sum(events, nodes, parents, size, Δtmax)
     Xnm = zeros(size, size)
-    Mnm = zeros(size, size)
+    # Mnm = zeros(size, size)
     for (event, node, parent) in zip(events, nodes, parents)
         if parent > 0
             parent_node = nodes[parent]
             parent_event = events[parent]
-            Mnm[parent_node, node] += 1
+            # Mnm[parent_node, node] += 1
             Xnm[parent_node, node] += log_duration(parent_event, event, Δtmax)
         end
     end
-    return Xnm ./ Mnm
+    # return Xnm ./ Mnm
+    return Xnm
 end
 
 function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
@@ -181,6 +191,7 @@ function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
 end
 
 
+# TODO: Parallelize over columns of A?
 """
 sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
 
@@ -202,9 +213,6 @@ function sample_adjacency_matrix!(p::HawkesProcess, events, nodes, T)
             # Sample A[i, j]
             Z = logsumexp(ll0, ll1)
             ρ = exp(ll1 - Z)
-            if i == j == 2
-                @info "p(a22 = 1 | ...) = $ρ"
-            end
             p.A[i, j] = rand.(Bernoulli.(ρ))
         end
     end
@@ -224,6 +232,7 @@ function integrated_intensity(p::HawkesProcess, T, Mn, a, i, j)
     return lla
 end
 
+# TODO: Pre-compute the indices for each node? Currently, we run through the entire array of events and check to see if each event is on the node of interest. We could instead run through the array once and find all the indices for each node, then directly compute intensity at those events.
 function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
     """Compute intensity on node `cidx` at every event conditional on `A[pidx, cidx] == a`."""
     λ = ones(length(events))
@@ -245,6 +254,38 @@ function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
             parentindex -= 1
             parentindex == 0 && break
         end
+    end
+    return λ
+end
+
+function pconditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
+    data = enumerate(zip(events, nodes))
+    λ = SharedArray(zeros(Float64, length(events)))
+    @sync @distributed for index = 1:length(λ)
+        λ[index] = conditional_intensity(p.λ0, p.μ, p.τ, p.W, p.A, p.Δtmax, index, events, nodes, a, pidx, cidx)
+    end
+    return λ
+end
+
+function conditional_intensity(λ0, μ, τ, W, A, Δtmax, index, events, nodes, a, pidx, cidx)
+    node = nodes[index]
+    node != cidx && return 1.
+    λ = λ0[node]
+    event = events[index]
+    index == 1 && return λ
+    ir = intensity.(LogitNormalProcess.(W, μ, τ, Δtmax))
+    parentindex = index - 1
+    while events[parentindex] > event - Δtmax
+        parentevent = events[parentindex]
+        parentnode = nodes[parentindex]
+        Δt = event - parentevent
+        if parentnode == pidx
+            λ += a * ir[parentnode, node](Δt)  # A[parentnode, node] = a
+        else
+            λ += A[parentnode, node] * ir[parentnode, node](Δt)
+        end
+        parentindex -= 1
+        parentindex == 0 && break
     end
     return λ
 end
@@ -276,6 +317,15 @@ function sample_parents(process::HawkesProcess, events, nodes)
     return parents
 end
 
+function psample_parents(p::HawkesProcess, events, nodes)
+    data = enumerate(zip(events, nodes))
+    parents = SharedArray(zeros(Int64, length(events)))
+    @sync @distributed for index = 1:length(parents)
+        parents[index] = psample_parent(p.λ0, p.μ, p.τ, p.W, p.A, p.Δtmax, index, events, nodes)
+    end
+    return parents
+end
+
 function sample_parent(p::HawkesProcess, event, node, index, events, nodes)
     if index == 1
         return 0
@@ -296,8 +346,38 @@ function sample_parent(p::HawkesProcess, event, node, index, events, nodes)
     end
     append!(λs, p.λ0[node])
     append!(parentindices, 0)
-    return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
+    # @show λs
+    # @show parentindices
+    return parentindices[argmax(rand(PointProcesses.Discrete(λs ./ sum(λs))))]
+    # return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
 end
+
+function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
+    index == 1 && return 0
+    λs = []
+    parentindices = []
+    ir = intensity.(LogitNormalProcess.(W, μ, τ, Δtmax))
+    event = events[index]
+    node = nodes[index]
+    parentindex = index - 1
+    while events[parentindex] > event - Δtmax
+        parenttime = events[parentindex]
+        parentnode = nodes[parentindex]
+        if A[parentnode, node] == 1
+            append!(λs, ir[parentnode, node](event - parenttime))
+            append!(parentindices, parentindex)
+        end
+        parentindex -= 1
+        parentindex == 0 && break
+    end
+    append!(λs, λ0[node])
+    append!(parentindices, 0)
+    # @show λs
+    # @show parentindices
+    return parentindices[argmax(rand(PointProcesses.Discrete(λs ./ sum(λs))))]
+    # return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
+end
+
 
 
 """
