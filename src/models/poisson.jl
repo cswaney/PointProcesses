@@ -43,6 +43,12 @@ function likelihood(p::HomogeneousProcess, ts, T)
     return a * b
 end
 
+function loglikelihood(p::HomogeneousProcess, ts, T)
+    a = -p.λ * T
+    b = length(ts) * log(p.λ)
+    return a + b
+end
+
 function rand(p::HomogeneousProcess, T)
     n = rand(Poisson(p.λ * T))
     ts = rand(Uniform(0, T), n)
