@@ -11,7 +11,7 @@ include("models/HawkesProcess.jl")
 include("models/NetworkHawkesProcess.jl")
 include("models/BernoulliNetworkHawkesProcess.jl")
 include("models/StochasticBlockNetworkHawkesProcess.jl")
-include("models/ExponentialHawkes.jl")
+include("models/ExponentialHawkesProcess.jl")
 export PoissonProcess,
        HomogeneousProcess,
        LinearProcess,
