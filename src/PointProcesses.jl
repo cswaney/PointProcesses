@@ -6,12 +6,10 @@ import Base.rand
 include("utils/distributions.jl")
 include("utils/assertions.jl")
 
-include("models/poisson.jl")
+include("models/Poisson.jl")
 include("models/HawkesProcess.jl")
-include("models/NetworkHawkesProcess.jl")
-include("models/BernoulliNetworkHawkesProcess.jl")
-include("models/StochasticBlockNetworkHawkesProcess.jl")
-include("models/ExponentialHawkesProcess.jl")
+include("models/DiscreteHawkesProcess.jl")
+include("models/Network.jl")
 export PoissonProcess,
        HomogeneousProcess,
        LinearProcess,
@@ -23,16 +21,20 @@ export PoissonProcess,
        intensity,
        impulse_response,
        stability,
+       HawkesProcess,
+       StandardHawkesProcess,
        NetworkHawkesProcess,
-       BernoulliNetworkHawkesProcess,
-       StochasticBlockNetworkHawkesProcess,
-       ExponentialHawkesProcess
+       DiscreteHawkesProcess,
+       Network,
+       DenseNetwork,
+       BernoulliNetwork,
+       StochasticBlockNetwork
 
-include("inference/mcmc/mcmc.jl")
-include("inference/mcmc/NetworkHawkesProcess.jl")
-include("inference/mcmc/BernoulliNetworkHawkesProcess.jl")
-include("inference/mcmc/StochasticBlockNetworkHawkesProcess.jl")
-include("inference/mcmc/ExponentialHawkesProcess.jl")
-export mcmc
+include("inference/mcmc/HawkesProcess.jl")
+include("inference/mcmc/DiscreteHawkesProcess.jl")
+include("inference/mcmc/Network.jl")
+include("inference/vb/DiscreteHawkesProcess.jl")
+include("inference/vb/Network.jl")
+export mcmc, vb
 
 end # module
