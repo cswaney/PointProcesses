@@ -134,7 +134,7 @@ function sample_class_probability!(net::StochasticBlockNetwork)
 end
 
 function sample_class_probability(net::StochasticBlockNetwork)
-    return = rand(Dirichlet(net.γ .+ rangecount(net.z, 1:net.K)))
+    return rand(Dirichlet(net.γ .+ rangecount(net.z, 1:net.K)))
 end
 
 

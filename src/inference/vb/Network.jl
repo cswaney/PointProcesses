@@ -4,8 +4,8 @@ Update the variational parameters specific to a Bernoulli network.
 # Arguments
 - ρ: variational parameter of a[i, j] ~ q(a[i, j] | ρ)
 """
-function update_network(p::DiscreteProcess, ρ)
-    α, β = update_link_probabilities(p.network, ρ)
+function update_network(net::BernoulliNetwork, ρ)
+    α, β = update_link_probabilities(net::Network, ρ)
     return α, β
 end
 
