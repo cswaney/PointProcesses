@@ -6,10 +6,15 @@ import Base.rand
 include("utils/distributions.jl")
 include("utils/assertions.jl")
 
+include("models/Network.jl")
+export Network,
+       DenseNetwork,
+       BernoulliNetwork,
+       StochasticBlockNetwork
+
 include("models/Poisson.jl")
 include("models/HawkesProcess.jl")
 include("models/DiscreteHawkesProcess.jl")
-include("models/Network.jl")
 export PoissonProcess,
        HomogeneousProcess,
        LinearProcess,
@@ -24,11 +29,7 @@ export PoissonProcess,
        HawkesProcess,
        StandardHawkesProcess,
        NetworkHawkesProcess,
-       DiscreteHawkesProcess,
-       Network,
-       DenseNetwork,
-       BernoulliNetwork,
-       StochasticBlockNetwork
+       DiscreteHawkesProcess
 
 include("inference/mcmc/HawkesProcess.jl")
 include("inference/mcmc/DiscreteHawkesProcess.jl")
