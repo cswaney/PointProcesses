@@ -1,30 +1,33 @@
-using Revise, Pkg
-Pkg.activate(".")
-using PointProcesses
-using Distributions, Gadfly
+using Revise, Distributions, Gadfly, Distributed
+addprocs(8)
+@everywhere using Pkg
+@everywhere Pkg.activate(".")
+@everywhere using PointProcesses
 
 
-λ0 = ones(2)
-W = 0.1 * ones(2, 2)
-θ = ones(2, 2)
 N = 2
+λ0 = ones(N)
+W = 0.1 * ones(N, N)
+A = ones(N, N)
+θ = ones(N, N)
 α0 = 1.
 β0 = 1.
 κ = 1.
-ν = ones(2, 2)
+ν = ones(N, N)
 αθ = 1.
 βθ = 1.
-p = ExponentialHawkesProcess(λ0, W, θ, N, α0, β0, κ, ν, αθ, βθ)
+net = DenseNetwork(N)
+p = StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
 T = 1000.;
 events, nodes = rand(p, T);
-S = 1000;
-λ0, W, θ = mcmc(p, (events, nodes, T), S);
-plot_posteriors(λ0, W, θ)
-ll = loglikelihood(p, events, nodes, T)
+nsamples = 2000;
+@time λ0, W, θ = mcmc(p, (events, nodes, T), nsamples);
+plot_background(λ0, burn=100)
+plot_weights(W, burn=100)
+plot_impulse_response(θ, burn=100)
 
 
-function plot_posteriors(λ0, W, θ; burn=0)
-    # λ0
+function plot_background(λ0; burn=0)
     plots = Array{Plot,1}(undef, p.N)
     for channel in 1:p.N
         x = [λ[channel] for λ in λ0[1 + burn:end]]
@@ -32,7 +35,9 @@ function plot_posteriors(λ0, W, θ; burn=0)
         plots[channel] = plt
     end
     vstack(plots)
-    # W
+end
+
+function plot_weights(W; burn=0)
     plots = Array{Plot,2}(undef, p.N, p.N)
     for parentchannel in 1:p.N
         for childchannel in 1:p.N
@@ -42,7 +47,9 @@ function plot_posteriors(λ0, W, θ; burn=0)
         end
     end
     gridstack(plots)
-    # θ
+end
+
+function plot_impulse_response(θ; burn=0)
     plots = Array{Plot,2}(undef, p.N, p.N)
     for parentchannel in 1:p.N
         for childchannel in 1:p.N
@@ -53,7 +60,6 @@ function plot_posteriors(λ0, W, θ; burn=0)
     end
     gridstack(plots)
 end
-
 
 function plot_impulse_respones(p, Δtmax)
     Δt = 0:0.01:Δtmax
@@ -67,7 +73,6 @@ function plot_impulse_respones(p, Δtmax)
     end
     gridstack(plots)
 end
-
 
 function plot_intensity(p, events, nodes, T)
     t = 0:0.1:T
