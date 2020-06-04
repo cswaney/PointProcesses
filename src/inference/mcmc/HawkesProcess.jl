@@ -339,10 +339,10 @@ sample_parents(process::HawkesProcess, events, nodes)
     - `λ0::Array{Float64,1}`: array of baseline intensities
     - `H::Array{Function,2}`: matrix of impulse response functions
 """
-function sample_parents(process::NetworkHawkesProcess, events, nodes)
+function sample_parents(p::NetworkHawkesProcess, events, nodes)
     parents = []
     for (index, (event, node)) in enumerate(zip(events, nodes))
-        parent = sample_parent(process, event, node, index, events, nodes)
+        parent = sample_parent(p, event, node, index, events, nodes)
         append!(parents, parent)
     end
     return parents
@@ -409,6 +409,17 @@ function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
     # return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
 end
 
+
+# TODO: parallelize!
+function sample_parents(p::StandardHawkesProcess, events, nodes)
+    parents = []
+    for (index, (event, node)) in enumerate(zip(events, nodes))
+        parent = sample_parent(p, event, node, index, events, nodes)
+        append!(parents, parent)
+    end
+    return parents
+end
+
 function sample_parent(p::StandardHawkesProcess, event, node, index, events, nodes)
     if index == 1
         return 0
@@ -427,6 +438,37 @@ function sample_parent(p::StandardHawkesProcess, event, node, index, events, nod
     append!(λs, p.λ0[node])
     append!(parentindices, 0)
     return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
+end
+
+function psample_parents(p::StandardHawkesProcess, events, nodes)
+    data = enumerate(zip(events, nodes))
+    parents = SharedArray(zeros(Int64, length(events)))
+    @sync @distributed for index = 1:length(parents)
+        parents[index] = psample_parent(p.λ0, p.θ, p.W, p.A, index, events, nodes)
+    end
+    return parents
+end
+
+function psample_parent(λ0, θ, W, A, index, events, nodes)
+    index == 1 && return 0
+    λs = []
+    parentindices = []
+    ir = intensity.(ExponentialProcess.(W, θ))
+    event = events[index]
+    node = nodes[index]
+    parentindex = index - 1
+    while parentindex > 0
+        parenttime = events[parentindex]
+        parentnode = nodes[parentindex]
+        if A[parentnode, node] == 1
+            append!(λs, ir[parentnode, node](event - parenttime))
+            append!(parentindices, parentindex)
+        end
+        parentindex -= 1
+    end
+    append!(λs, λ0[node])
+    append!(parentindices, 0)
+    return parentindices[argmax(rand(PointProcesses.Discrete(λs ./ sum(λs))))]
 end
 
 
@@ -454,7 +496,8 @@ function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
     τ = Array{typeof(p.τ),1}(undef,nsamples)
     for i = 1:nsamples
         i % 100 == 0 && @info "i=$i"
-        parents = sample_parents(p, events, nodes)
+        parents = psample_parents(p, events, nodes)
+        # parents = sample_parents(p, events, nodes)
         parentnodes = [get_parent_node(nodes, p) for p in parents]
         W[i] = sample_weights!(p, events, nodes, parentnodes)
         λ0[i] = sample_baseline!(p, nodes, parentnodes, T)
@@ -498,7 +541,8 @@ function mcmc(process::StandardHawkesProcess, data, nsamples::Int64)
         if i % 100 == 0
             @info "i=$i"
         end
-        parents = sample_parents(process, events, nodes)
+        parents = psample_parents(process, events, nodes)
+        # parents = sample_parents(process, events, nodes)
         parentnodes = [get_parent_node(nodes, p) for p in parents]
         λ0[i] = sample_baseline!(process, nodes, parentnodes, T)
         θ[i] = sample_impulse_response!(process, events, nodes, parents, parentnodes)
