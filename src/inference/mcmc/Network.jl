@@ -23,7 +23,7 @@ Return a sample from the conditional posterior of `ρ`.
 """
 function sample_network!(net::BernoulliNetwork, data)
     net.ρ = rand(Beta(net.α + sum(data), net.β + net.N * net.N - sum(data)))
-    return copy(p.ρ)
+    return copy(net.ρ)
 end
 
 function sample_network(net::BernoulliNetwork, data)
@@ -40,9 +40,9 @@ Return a sample from the conditional posterior of `ρ`.
 - `data::Array{Bool,2}`: `N x N` matrix of observed links.
 """
 function sample_network!(net::StochasticBlockNetwork, data)
-    ρ = sample_connection_probability(net, data)
-    z = sample_classes(net)
-    π = sample_class_probability(net)
+    ρ = sample_connection_probability!(net, data)
+    z = sample_classes!(net)
+    π = sample_class_probability!(net)
     return ρ, z, π
 end
 
@@ -70,7 +70,7 @@ function sample_connection_probability!(net::StochasticBlockNetwork, data)
             connections[ki, kj] += data[i, j]
         end
     end
-    net.ρ = rand.(Beta.(net.αρ .+ connections, net.βρ .+ counts .- connections))
+    net.ρ = rand.(Beta.(net.α .+ connections, net.β .+ counts .- connections))
     return copy(net.ρ)
 end
 
@@ -85,7 +85,7 @@ function sample_connection_probability(net::StochasticBlockNetwork, data)
             connections[ki, kj] += data[i, j]
         end
     end
-    return rand.(Beta.(net.αρ .+ connections, net.βρ .+ counts .- connections))
+    return rand.(Beta.(net.α .+ connections, net.β .+ counts .- connections))
 end
 
 

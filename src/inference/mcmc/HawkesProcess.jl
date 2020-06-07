@@ -229,7 +229,7 @@ sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
 """
 function sample_adjacency_matrix!(p::HawkesProcess, events, nodes, T)
     Mn = node_counts(nodes, p.N)
-    L = link_probability(p)
+    L = link_probability(p.net)
     for j = 1:p.N  # columns
         for i = 1:p.N  # rows
             # Set A[i, j] = 0
@@ -487,9 +487,13 @@ We use the process and network structures to update model parameters during Gibb
 function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
     events, nodes, T = data
     A = Array{typeof(p.A),1}(undef,nsamples)
-    ρ = Array{typeof(p.ρ),1}(undef,nsamples)
-    z = Array{typeof(p.z),1}(undef,nsamples)
-    π = Array{typeof(p.π),1}(undef,nsamples)
+    if typeof(p.net) == BernoulliNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+    elseif typeof(p.net) == StochasticBlockNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+        z = Array{typeof(p.net.z),1}(undef,nsamples)
+        π = Array{typeof(p.net.π),1}(undef,nsamples)
+    end
     W = Array{typeof(p.W),1}(undef,nsamples)
     λ0 = Array{typeof(p.λ0),1}(undef,nsamples)
     μ = Array{typeof(p.μ),1}(undef,nsamples)
@@ -504,19 +508,18 @@ function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
         μ[i], τ[i] = sample_impulse_response!(p, events, nodes, parents, parentnodes)
         if typeof(p.net) == BernoulliNetwork
             A[i] = sample_adjacency_matrix!(p, events, nodes, T)
-            ρ[i] = sample_network!(p.net, A)
+            ρ[i] = sample_network!(p.net, p.A)
         elseif typeof(p.net) == StochasticBlockNetwork
             A[i] = sample_adjacency_matrix!(p, events, nodes, T)
-            ρ[i], z[i], π[i] = sample_network!(p.net, A)
+            ρ[i], z[i], π[i] = sample_network!(p.net, p.A)
         end
     end
-    return
     if typeof(p.net) == BernoulliNetwork
-        λ0, μ, τ, W, A, ρ
+        return λ0, μ, τ, W, A, ρ
     elseif typeof(p.net) == StochasticBlockNetwork
-        λ0, μ, τ, W, A, ρ, z, π
+        return λ0, μ, τ, W, A, ρ, z, π
     else
-        λ0, μ, τ, W
+        return λ0, μ, τ, W
     end
 end
 
