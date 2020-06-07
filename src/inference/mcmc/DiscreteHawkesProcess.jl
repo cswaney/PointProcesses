@@ -90,8 +90,8 @@ end
 - `parents::Array{Int64,3}`: `T x N x (1 + N * B)` array of parent counts.
 """
 function sample_weights(p::DiscreteHawkesProcess, events, parents)
-    κ = p.κ .+ sum_parents(p, parents)
-    ν = p.ν .+ sum(events, dims=2)
+    κ = p.κ0 .+ sum_parents(p, parents)
+    ν = p.ν1 .+ sum(events, dims=2)
     p.W = rand.(Gamma.(κ, 1 ./ ν))
     return copy(p.W)
 end
@@ -272,33 +272,35 @@ Generate `nsamples` MCMC samples from `p`. Overwrites parameters of `p`.
 function mcmc(p::DiscreteHawkesProcess, events, nsamples)
     ϕ = basis(p)
     convolved = convolve(events, ϕ)
+    A = Array{typeof(p.A),1}(undef,nsamples)
+    if typeof(p.net) == BernoulliNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+    elseif typeof(p.net) == StochasticBlockNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+        z = Array{typeof(p.net.z),1}(undef,nsamples)
+        π = Array{typeof(p.net.π),1}(undef,nsamples)
+    end
+    W = Array{typeof(p.W),1}(undef,nsamples)
     λ0 = Array{typeof(p.λ0),1}(undef,nsamples)
     θ = Array{typeof(p.θ),1}(undef,nsamples)
-    A = Array{typeof(p.A),1}(undef,nsamples)
-    ρ = Array{typeof(p.ρ),1}(undef,nsamples)
-    z = Array{typeof(p.z),1}(undef,nsamples)
-    π = Array{typeof(p.π),1}(undef,nsamples)
-    W = Array{typeof(p.W),1}(undef,nsamples)
-    for iter in 1:nsamples
-        iter % 100 == 0 && @info "iter=$iter"
+    for i in 1:nsamples
+        i % 100 == 0 && @info "i=$i"
         parents = psample_parents(p, events, convolved)
-        λ0[iter] = sample_background(p, parents)
-        θ[iter] = sample_impulse_response(p, parents)
-        W[iter] = sample_weights(p, events, parents)
-        if typeof(p.net) == StochasticBlockNetwork
-            A[iter] = psample_adjacency_matrix!(p, events, convolved)
-            ρ[iter] = sample_connection_probability!(p, A)
-            z[iter] = sample_classes!(p)
-            π[iter] = sample_class_probability!(p)
-        elseif typeof(p.net) == BernoulliNetwork
-            A[iter] = psample_adjacency_matrix!(p, events, convolved)
-            ρ[iter] = sample_connection_probability!(p, A)
+        W[i] = sample_weights(p, events, parents)
+        λ0[i] = sample_background(p, parents)
+        θ[i] = sample_impulse_response(p, parents)
+        if typeof(p.net) == BernoulliNetwork
+            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            ρ[i] = sample_network!(p.net, p.A)
+        elseif typeof(p.net) == StochasticBlockNetwork
+            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            ρ[i], z[i], π[i] = sample_network!(p.net, p.A)
         end
     end
-    if typeof(p.net) == StochasticBlockNetwork
-        return λ0, θ, A, ρ, z, π, W
-    elseif typeof(p.net) == BernoulliNetwork
-        return λ0, θ, A, ρ, W
+    if typeof(p.net) == BernoulliNetwork
+        return λ0, θ, W, A, ρ
+    elseif typeof(p.net) == StochasticBlockNetwork
+        return λ0, θ, W, A, ρ, z, π
     else
         return λ0, θ, W
     end

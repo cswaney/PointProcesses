@@ -1,6 +1,6 @@
 module PointProcesses
 
-using Distributions, Distributed, SharedArrays, Gadfly, Printf
+using Distributions, Distributed, SharedArrays, Gadfly, Printf, DSP
 import Base.rand
 
 include("utils/distributions.jl")
