@@ -23,7 +23,7 @@ A = [1 0; 0 1];
 ρ = 0.5;
 αρ = 1.;
 βρ = 1;
-net = BernoulliNetwork(ρ, αρ, βρ, N)
+net = BernoulliNetwork(ρ, αρ, βρ, N);
 p = NetworkHawkesProcess(λ0, μ, τ, A, W, Δtmax, N, α0, β0, κ, ν, μμ, κμ, ατ, βτ, net);
 plot_impulse_respones(p)
 T = 50000.;
