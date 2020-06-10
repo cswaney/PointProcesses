@@ -138,7 +138,7 @@ end
 Sample the conditional posterior distribution of the adjacency matrix, `A`.
 """
 function sample_adjacency_matrix!(p::DiscreteHawkesProcess, events, convolved)
-    L = link_probability(p)
+    L = link_probability(p.net)
     for cidx = 1:p.N  # TODO: parallelize over `cidx` (columns of A)
         for pidx = 1:p.N
             # Set A[pidx, cidx] = 0
@@ -290,10 +290,10 @@ function mcmc(p::DiscreteHawkesProcess, events, nsamples)
         λ0[i] = sample_background(p, parents)
         θ[i] = sample_impulse_response(p, parents)
         if typeof(p.net) == BernoulliNetwork
-            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            A[i] = sample_adjacency_matrix!(p, events, convolved)
             ρ[i] = sample_network!(p.net, p.A)
         elseif typeof(p.net) == StochasticBlockNetwork
-            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            A[i] = sample_adjacency_matrix!(p, events, convolved)
             ρ[i], z[i], π[i] = sample_network!(p.net, p.A)
         end
     end
