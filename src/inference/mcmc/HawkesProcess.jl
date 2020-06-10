@@ -1,13 +1,14 @@
+"""Methods to perform Gibbs sampling on continuous-time Hawkes processes."""
+
 # TODO: Modify to accomodate data with multiple series.
 
 # TODO: Remove replace parentnodes in arg list with parents and use nodes[parent]?
 
 # Speed-ups:
 # - Pre-compute node_counts, baseline_counts (values doesn't change throughout Gibbs sampling).
-
 # - Pre-compute parent_counts? Value doesn't change within each sample...
 # - In-place operations?
-# -
+
 
 """
 sample_weights(events, nodes, parents, θ)
@@ -191,6 +192,35 @@ function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
 end
 
 
+"""
+    sample_impulse_response!(p::ExponentialHawkesProcess, events, nodes, parents, parentnodes)
+
+The impulse-response is an exponential distribution. Assuming a conjugate prior `θ ~ Gamma(αθ, βθ)`, the posterior distribution of `θ[n, m]` is proportional to a `Gamma(α0 + Mnm, β + Mnm + Xnm)`, where `Mnm` is the number of events on node `m` with parent on node `n`, and `Xnm` is the average duration between these `Mnm` parent-child pairs. *Note*: In case that `Mnm = 0`, we default to the prior distribution (as we have observed no data related to `θ[n,m]`).
+"""
+function sample_impulse_response!(p::StandardHawkesProcess, events, nodes, parents, parentnodes)
+    Mnm = parent_counts(nodes, parentnodes, p.N)
+    Xnm = duration_mean(events, nodes, parents, p.N)
+    αnm = p.αθ .+ Mnm  # = α (prior) for zero-counts
+    βnm = p.βθ .+ Mnm .* Xnm  # Xnm returns 0 for zero-counts => β (prior)
+    p.θ = rand.(Gamma.(αnm, 1 ./ βnm))
+    return copy(p.θ)
+end
+
+function duration_mean(events, nodes, parents, size)
+    Xnm = zeros(size, size)
+    Mnm = zeros(size, size)
+    for (event, node, parent) in zip(events, nodes, parents)
+        if parent > 0
+            parentnode = nodes[parent]
+            parentevent = events[parent]
+            Mnm[parentnode, node] += 1
+            Xnm[parentnode, node] += event - parentevent
+        end
+    end
+    return fillna!(Xnm ./ Mnm, 0)
+end
+
+
 # TODO: Parallelize over columns of A?
 """
 sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
@@ -199,7 +229,7 @@ sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
 """
 function sample_adjacency_matrix!(p::HawkesProcess, events, nodes, T)
     Mn = node_counts(nodes, p.N)
-    L = link_probability(p)
+    L = link_probability(p.net)
     for j = 1:p.N  # columns
         for i = 1:p.N  # rows
             # Set A[i, j] = 0
@@ -309,25 +339,16 @@ sample_parents(process::HawkesProcess, events, nodes)
     - `λ0::Array{Float64,1}`: array of baseline intensities
     - `H::Array{Function,2}`: matrix of impulse response functions
 """
-function sample_parents(process::HawkesProcess, events, nodes)
+function sample_parents(p::NetworkHawkesProcess, events, nodes)
     parents = []
     for (index, (event, node)) in enumerate(zip(events, nodes))
-        parent = sample_parent(process, event, node, index, events, nodes)
+        parent = sample_parent(p, event, node, index, events, nodes)
         append!(parents, parent)
     end
     return parents
 end
 
-function psample_parents(p::HawkesProcess, events, nodes)
-    data = enumerate(zip(events, nodes))
-    parents = SharedArray(zeros(Int64, length(events)))
-    @sync @distributed for index = 1:length(parents)
-        parents[index] = psample_parent(p.λ0, p.μ, p.τ, p.W, p.A, p.Δtmax, index, events, nodes)
-    end
-    return parents
-end
-
-function sample_parent(p::HawkesProcess, event, node, index, events, nodes)
+function sample_parent(p::NetworkHawkesProcess, event, node, index, events, nodes)
     if index == 1
         return 0
     end
@@ -351,6 +372,15 @@ function sample_parent(p::HawkesProcess, event, node, index, events, nodes)
     # @show parentindices
     return parentindices[argmax(rand(PointProcesses.Discrete(λs ./ sum(λs))))]
     # return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
+end
+
+function psample_parents(p::NetworkHawkesProcess, events, nodes)
+    data = enumerate(zip(events, nodes))
+    parents = SharedArray(zeros(Int64, length(events)))
+    @sync @distributed for index = 1:length(parents)
+        parents[index] = psample_parent(p.λ0, p.μ, p.τ, p.W, p.A, p.Δtmax, index, events, nodes)
+    end
+    return parents
 end
 
 function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
@@ -380,9 +410,70 @@ function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
 end
 
 
+# TODO: parallelize!
+function sample_parents(p::StandardHawkesProcess, events, nodes)
+    parents = []
+    for (index, (event, node)) in enumerate(zip(events, nodes))
+        parent = sample_parent(p, event, node, index, events, nodes)
+        append!(parents, parent)
+    end
+    return parents
+end
+
+function sample_parent(p::StandardHawkesProcess, event, node, index, events, nodes)
+    if index == 1
+        return 0
+    end
+    λs = []
+    parentindices = []
+    ir = impulse_response(p)
+    parentindex = 1
+    while parentindex < index
+        parenttime = events[parentindex]
+        parentnode = nodes[parentindex]
+        append!(λs, ir[parentnode, node](event - parenttime))
+        append!(parentindices, parentindex)
+        parentindex += 1
+    end
+    append!(λs, p.λ0[node])
+    append!(parentindices, 0)
+    return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
+end
+
+function psample_parents(p::StandardHawkesProcess, events, nodes)
+    data = enumerate(zip(events, nodes))
+    parents = SharedArray(zeros(Int64, length(events)))
+    @sync @distributed for index = 1:length(parents)
+        parents[index] = psample_parent(p.λ0, p.θ, p.W, p.A, index, events, nodes)
+    end
+    return parents
+end
+
+function psample_parent(λ0, θ, W, A, index, events, nodes)
+    index == 1 && return 0
+    λs = []
+    parentindices = []
+    ir = intensity.(ExponentialProcess.(W, θ))
+    event = events[index]
+    node = nodes[index]
+    parentindex = index - 1
+    while parentindex > 0
+        parenttime = events[parentindex]
+        parentnode = nodes[parentindex]
+        if A[parentnode, node] == 1
+            append!(λs, ir[parentnode, node](event - parenttime))
+            append!(parentindices, parentindex)
+        end
+        parentindex -= 1
+    end
+    append!(λs, λ0[node])
+    append!(parentindices, 0)
+    return parentindices[argmax(rand(PointProcesses.Discrete(λs ./ sum(λs))))]
+end
+
 
 """
-    mcmc(p::HawkesProcess, data, params, n::Int32)
+    mcmc(p::NetworkHawkesProcess, data, params, n::Int32)
 
 Run MCMC algorithm for inference in network Hawkes model.
 
@@ -393,4 +484,72 @@ We use the process and network structures to update model parameters during Gibb
 - `params`: tuple of hyperparameters
 - `n::Int32`: number of samples to draw.
 """
-function mcmc(p::HawkesProcess, data, nsamples::Int64) end
+function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
+    events, nodes, T = data
+    A = Array{typeof(p.A),1}(undef,nsamples)
+    if typeof(p.net) == BernoulliNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+    elseif typeof(p.net) == StochasticBlockNetwork
+        ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
+        z = Array{typeof(p.net.z),1}(undef,nsamples)
+        π = Array{typeof(p.net.π),1}(undef,nsamples)
+    end
+    W = Array{typeof(p.W),1}(undef,nsamples)
+    λ0 = Array{typeof(p.λ0),1}(undef,nsamples)
+    μ = Array{typeof(p.μ),1}(undef,nsamples)
+    τ = Array{typeof(p.τ),1}(undef,nsamples)
+    for i = 1:nsamples
+        i % 100 == 0 && @info "i=$i"
+        parents = psample_parents(p, events, nodes)
+        # parents = sample_parents(p, events, nodes)
+        parentnodes = [get_parent_node(nodes, p) for p in parents]
+        W[i] = sample_weights!(p, events, nodes, parentnodes)
+        λ0[i] = sample_baseline!(p, nodes, parentnodes, T)
+        μ[i], τ[i] = sample_impulse_response!(p, events, nodes, parents, parentnodes)
+        if typeof(p.net) == BernoulliNetwork
+            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            ρ[i] = sample_network!(p.net, p.A)
+        elseif typeof(p.net) == StochasticBlockNetwork
+            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            ρ[i], z[i], π[i] = sample_network!(p.net, p.A)
+        end
+    end
+    if typeof(p.net) == BernoulliNetwork
+        return λ0, μ, τ, W, A, ρ
+    elseif typeof(p.net) == StochasticBlockNetwork
+        return λ0, μ, τ, W, A, ρ, z, π
+    else
+        return λ0, μ, τ, W
+    end
+end
+
+
+"""
+    mcmc(p::ExponentialHawkesProcess, data, params, n::Int64)
+
+Run MCMC algorithm for inference in network Hawkes model.
+
+# Implementation Notes
+We use the process and network structures to update model parameters during Gibbs sampling. Each `sample` method modifies its associated model parameters in the process or network and returns the sampled value. (The exception is the `sample_parents` method, which samples a latent variable).
+
+- `data`: (events, nodes, T) tuple
+- `nsamples::Int32`: number of samples to draw.
+"""
+function mcmc(process::StandardHawkesProcess, data, nsamples::Int64)
+    events, nodes, T = data
+    λ0 = Array{typeof(process.λ0),1}(undef,nsamples)
+    W = Array{typeof(process.W),1}(undef,nsamples)
+    θ = Array{typeof(process.θ),1}(undef,nsamples)
+    for i = 1:nsamples
+        if i % 100 == 0
+            @info "i=$i"
+        end
+        parents = psample_parents(process, events, nodes)
+        # parents = sample_parents(process, events, nodes)
+        parentnodes = [get_parent_node(nodes, p) for p in parents]
+        λ0[i] = sample_baseline!(process, nodes, parentnodes, T)
+        θ[i] = sample_impulse_response!(process, events, nodes, parents, parentnodes)
+        W[i] = sample_weights!(process, events, nodes, parentnodes)
+    end
+    return λ0, W, θ
+end
