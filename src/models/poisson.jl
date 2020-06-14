@@ -95,6 +95,13 @@ function likelihood(p::ExponentialProcess, ts, T)
     return a * b
 end
 
+function loglikelihood(p::ExponentialProcess, ts, T)
+    h = Exponential(1 / p.θ)
+    a = -p.w * cdf(h, T)
+    b = sum(log.(p.w * pdf.(h, ts)))
+    return a + b
+end
+
 function rand(p::ExponentialProcess, T)
     h = Exponential(1 / p.θ)
     n = rand(Poisson(p.w * cdf(h, T)))
@@ -120,6 +127,13 @@ function likelihood(p::LogitNormalProcess, ts, T)
     a = exp(-p.w * cdf(d, T / p.Δtmax))
     b = prod(p.w * pdf.(d, ts ./ p.Δtmax))
     return a * b
+end
+
+function loglikelihood(p::LogitNormalProcess, ts, T)
+    d = LogitNormal(p.μ, p.τ ^ (-1/2))
+    a = -p.w * cdf(d, T / p.Δtmax)
+    b = sum(log.(p.w * pdf.(d, ts ./ p.Δtmax)))
+    return a + b
 end
 
 # logit(x) = log(x / (1 - x))
