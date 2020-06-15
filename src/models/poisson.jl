@@ -150,3 +150,136 @@ function rand(p::LogitNormalProcess, T)
     ts = rand(truncated(h, 0., T / p.Δtmax), n)
     return sort(ts)
 end
+
+
+"""
+A Poisson process with linear spline interpolation intensity function.
+"""
+struct LinearSplineProcess <: PoissonProcess
+    t0::Float64
+    Δt::Float64
+    n::Int64  # xi = t0 + Δt * i, i = 0, ..., n
+    ts::Array{Float64,1}
+    λs::Array{Float64,1}  # λ0, λ1, ..., λn
+end
+
+function LinearSplineProcess(t0, Δt, n, λs)
+    ts = t0 .+ Δt .* 0:1:n
+    return LinearSplineProcess(t0, Δt, n, ts, λs)
+end
+
+function intensity(p::LinearSplineProcess)
+    function λ(t)
+        i = min(Int(t ÷ p.Δt + 1), p.n)  # last interval is closed!
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = p.λs[i]
+        λ1 = p.λs[i + 1]
+        return (λ1 * (t - t0) + λ0 * (t1 - t)) / p.Δt
+    end
+    return λ
+end
+
+function likelihood(p::LinearSplineProcess, ts, T)
+    # integrated intensity
+    I = 0.
+    for i = 1:p.n
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = p.λs[i]
+        λ1 = p.λs[i + 1]
+        I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+    end
+    a = exp(-I)
+    # product of intensity
+    b = 1.
+    for t in ts
+        i = min(Int(t ÷ p.Δt + 1), p.n)
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = p.λs[i]
+        λ1 = p.λs[i + 1]
+        b *= λ0 + (λ1 - λ0) * (t - t0) / p.Δt
+    end
+    return a * b
+end
+
+loglikelihood(p::LinearSplineProcess, ts, T) = log(likelihood(p, ts, T))
+
+function rand(p::LinearSplineProcess, T)
+    # integrated intensity
+    # I = 0.
+    # for i = 1:p.n
+    #     t0 = p.ts[i]
+    #     t1 = p.ts[i + 1]
+    #     λ0 = p.λs[i]
+    #     λ1 = p.λs[i + 1]
+    #     I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+    # end
+    # n = rand(Poisson(I))
+    # ts = rand(... t ~ λ(t) / I , n)
+    # return sort(ts)
+    events = []
+    for t in p.ts
+        i = min(Int(t ÷ p.Δt + 1), p.n)
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = p.λs[i]
+        λ1 = p.λs[i + 1]
+        I = p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+        n = rand(Poisson(I))
+        append!(events, rand(Uniform(t0, t1), n))
+    end
+    return events
+end
+
+function loglikelihood(p::LinearSplineProcess, λs, events, T)
+    # integrated intensity
+    I = 0.
+    for i = 1:p.n
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = λs[i]
+        λ1 = λs[i + 1]
+        I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+    end
+    a = exp(-I)
+    # product of intensity
+    b = 1.
+    for t in events
+        i = min(Int(t ÷ p.Δt + 1), p.n)
+        t0 = p.ts[i]
+        t1 = p.ts[i + 1]
+        λ0 = λs[i]
+        λ1 = λs[i + 1]
+        b *= λ0 + (λ1 - λ0) * (t - t0) / p.Δt
+    end
+    return log(a * b)
+end
+
+using Optim
+import Optim: minimizer, summary
+function mle(process::LinearSplineProcess, events, T)
+    x0 = copy(process.λs)
+    f(x) = -loglikelihood(process, x, events, T)
+    lower = zeros(process.n + 1)
+    upper = Inf .* ones(process.n + 1)
+    method = LBFGS()
+    opt = optimize(f, lower, upper, x0, Fminbox(method))
+    @info opt
+    λmax = minimizer(opt)
+    return λmax
+end
+
+function sample_parents(p::LinearSplineProcess, events)
+    """
+        - Assign parents to one of the `n + 1` constant background processes.
+        - Each process has probability determined by its contribution to intensity.
+        - Thus, two potential parents at each `t`.
+    """
+end
+function sample_background(p::LinearSplineProcess, events)
+    """
+        - Decompose intensity into the constant background processes.
+    """
+end
