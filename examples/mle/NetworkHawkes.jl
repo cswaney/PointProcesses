@@ -23,6 +23,14 @@ net = DenseNetwork(N)
 p = NetworkHawkesProcess(λ0, μ, τ, A, W, Δtmax, N, α0, β0, κ, ν, μμ, κμ, ατ, βτ, net);
 
 T = 10000.;
-events, nodes = rand(p, T);
+ntrials = 5;
+data = []
+for _ in 1:ntrials
+    push!(data, rand(p, T))
+end
 
-@time λ0, W, μ, τ = mle(p, events, nodes, T);
+@time λ0, W, μ, τ = mle(p, data, T);
+@info λ0
+@info W
+@info μ
+@info τ

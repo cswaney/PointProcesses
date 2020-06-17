@@ -3,8 +3,6 @@ using Pkg
 Pkg.activate(".")
 using PointProcesses
 
-# TODO: This is incredible slow... try parallelizing loglikelihood calculation... (1) over individual events... (2) over trials...
-
 
 N = 2
 λ0 = ones(N)
@@ -20,8 +18,14 @@ A = ones(N, N)
 net = DenseNetwork(N)
 p = StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
 
-T = 200.;
-events, nodes = rand(p, T);
+T = 2000.;
+ntrials = 10;
+data = [];
+for _ in 1:ntrials
+    push!(data, rand(p, T));
+end
 
-@time θ_mle = mle(p, events, nodes, T);
-@time θ_trunc = mle(p, events, nodes, T, Δtmax=5.);
+@time θ_trunc = mle(p, data, T, Δtmax=5.);
+@info θ_trunc[1]
+@info θ_trunc[2]
+@info θ_trunc[3]

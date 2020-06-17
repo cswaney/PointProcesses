@@ -21,19 +21,27 @@ Find the maximum-likelihood estimate of a Poisson process.
 """
 function mle(process::PoissonProcess) end
 
-function loglikelihood(p::HomogeneousProcess, λ, events, T)
-    N = length(events)
-    a = -λ * T * N
-    b = 0.
-    for i = 1:N
-        b += length(events[i]) * log(λ)
+
+function loglikelihood(p::HomogeneousProcess, λ, data, T)
+    # N = length(events)
+    # a = -λ * T * N
+    # b = 0.
+    # for i = 1:N
+    #     b += length(events[i]) * log(λ)
+    # end
+    # return a + b
+    ll = 0.
+    for events in data
+        a = -λ * T
+        b = length(events) * log(λ)
+        ll += a + b
     end
-    return a + b
+    return ll
 end
 
-function mle(process::HomogeneousProcess, events, T)
+function mle(process::HomogeneousProcess, data, T)
     λ0 = copy(process.λ)
-    f(x) = -loglikelihood(process, x[1], events, T)
+    f(x) = -loglikelihood(process, x[1], data, T)
     lower = [0.]
     upper = [Inf]
     method = LBFGS()
@@ -43,21 +51,30 @@ function mle(process::HomogeneousProcess, events, T)
     return λmax
 end
 
-function loglikelihood(p::ExponentialProcess, w, θ, events, T)
-    N = length(events)
+
+function loglikelihood(p::ExponentialProcess, w, θ, data, T)
+    # N = length(events)
+    # h = Exponential(1 / θ)
+    # a = -w * cdf(h, T) * N
+    # b = 0.
+    # for i = 1:N
+    #     b += sum(log.(w * pdf.(h, events[i])))
+    # end
+    # return a + b
     h = Exponential(1 / θ)
-    a = -w * cdf(h, T) * N
-    b = 0.
-    for i = 1:N
-        b += sum(log.(w * pdf.(h, events[i])))
+    a = -w * cdf(h, T)
+    ll = 0.
+    for events in data
+        b = sum(log.(w * pdf.(h, events)))
+        ll += a + b
     end
-    return a + b
+    return ll
 end
 
-function mle(process::ExponentialProcess, events, T)
+function mle(process::ExponentialProcess, data, T)
     w0 = copy(process.w)
     θ0 = copy(process.θ)
-    f(x) = -loglikelihood(process, x[1], x[2], events, T)
+    f(x) = -loglikelihood(process, x[1], x[2], data, T)
     lower = [0., 0.]
     upper = [Inf, Inf]
     method = LBFGS()
@@ -67,22 +84,31 @@ function mle(process::ExponentialProcess, events, T)
     return λmax
 end
 
-function loglikelihood(p::LogitNormalProcess, w, μ, τ, events, T)
-    N = length(events)
+
+function loglikelihood(p::LogitNormalProcess, w, μ, τ, data, T)
+    # N = length(events)
+    # d = LogitNormal(μ, τ ^ (-1/2))
+    # a = -w * cdf(d, T / p.Δtmax) * N
+    # b = 0.
+    # for i = 1:N
+    #     b += sum(log.(w * pdf.(d, events[i] ./ p.Δtmax)))
+    # end
+    # return a + b
     d = LogitNormal(μ, τ ^ (-1/2))
-    a = -w * cdf(d, T / p.Δtmax) * N
-    b = 0.
-    for i = 1:N
-        b += sum(log.(w * pdf.(d, events[i] ./ p.Δtmax)))
+    a = -w * cdf(d, T / p.Δtmax)
+    ll = 0.
+    for events in data
+        b = sum(log.(w * pdf.(d, events ./ p.Δtmax)))
+        ll += a + b
     end
-    return a + b
+    return ll
 end
 
-function mle(process::LogitNormalProcess, events, T)
+function mle(process::LogitNormalProcess, data, T)
     w0 = copy(process.w)
     μ0 = copy(process.μ)
     τ0 = copy(process.τ)
-    f(x) = -loglikelihood(process, x[1], x[2], x[3], events, T)
+    f(x) = -loglikelihood(process, x[1], x[2], x[3], data, T)
     lower = [0., -Inf, 0.]
     upper = [Inf, Inf, Inf]
     method = LBFGS()
@@ -92,7 +118,53 @@ function mle(process::LogitNormalProcess, events, T)
     return λmax
 end
 
-function pack(process::StandardHawkesProcess)
+function loglikelihood(p::LinearSplineProcess, λs, data, T)
+    ll = 0.
+    for events in data
+        # integrated intensity
+        I = 0.
+        for i = 1:p.n
+            t0 = p.ts[i]
+            t1 = p.ts[i + 1]
+            λ0 = λs[i]
+            λ1 = λs[i + 1]
+            I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+        end
+        a = exp(-I)
+        # product of intensity
+        b = 1.
+        for t in events
+            i = min(Int(t ÷ p.Δt + 1), p.n)
+            t0 = p.ts[i]
+            t1 = p.ts[i + 1]
+            λ0 = λs[i]
+            λ1 = λs[i + 1]
+            b *= λ0 + (λ1 - λ0) * (t - t0) / p.Δt
+        end
+        ll += log(a * b)
+    end
+    return ll
+end
+
+function mle(process::LinearSplineProcess, data, T)
+    x0 = copy(process.λs)
+    f(x) = -loglikelihood(process, x, data, T)
+    lower = zeros(process.n + 1)
+    upper = Inf .* ones(process.n + 1)
+    start_time = time()
+    function status_update(o)
+        println("iter=$(o.iteration), elapsed=$(time() - start_time)")
+        return false
+    end
+    options = Optim.Options(callback=status_update)
+    method = LBFGS()
+    opt = optimize(f, lower, upper, x0, Fminbox(method), options)
+    @info opt
+    λmax = minimizer(opt)
+    return λmax
+end
+
+function pack(p::StandardHawkesProcess)
     # return [copy(p.λ0) copy(p.W) copy(p.A) copy(p.θ)]
     return [copy(p.λ0) copy(p.W) copy(p.θ)]
 end
@@ -103,6 +175,7 @@ function unpack(process::StandardHawkesProcess, arr)
     # A = arr[:, (2 + N):(2 + 2 * N - 1)]
     # θ = arr[:, (2 + 2 * N):(2 + 3 * N - 1)]
     # return λ0, W, A, θ
+    N = process.N
     λ0 = arr[:, 1]
     W = arr[:, 2:2 + (N - 1)]
     θ = arr[:, (2 + N):(2 + 2 * N - 1)]
@@ -114,79 +187,87 @@ function impulse_response(p::StandardHawkesProcess, W, θ)
     return intensity.(P)
 end
 
-function loglikelihood(p::StandardHawkesProcess, events, nodes, T, λ0, W, θ)
+"""
+# Arguments
+`data::Array{Tuple{Array{Float64,1},Array{Float64,1}}},1}`
+"""
+function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
-    # Calculate integrated intensity
-    ll -= sum(λ0) * T
-    I = zeros(nchannels)
-    for parentchannel in nodes
-        I .+= W[parentchannel, :]
-    end
-    ll -= sum(I)
-    # Calculate pointwise total intensity
-    ir = impulse_response(p, W, θ)
-    for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
-        λtot = λ0[childchannel]
-        if childindex == 1
+    for (events, nodes) in data
+        # Calculate integrated intensity
+        ll -= sum(λ0) * T
+        I = zeros(nchannels)
+        for parentchannel in nodes
+            I .+= W[parentchannel, :]
+        end
+        ll -= sum(I)
+        # Calculate pointwise total intensity
+        ir = impulse_response(p, W, θ)
+        for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
+            λtot = λ0[childchannel]
+            if childindex == 1
+                ll += log(λtot)
+                continue
+            end
+            parentindex = 1
+            while parentindex < childindex
+                parenttime = events[parentindex]
+                parentchannel = nodes[parentindex]
+                Δt = childtime - parenttime
+                # a = A[parentchannel, childchannel]
+                # λtot += a * ir[parentchannel, childchannel](Δt)
+                λtot += ir[parentchannel, childchannel](Δt)
+                parentindex += 1
+            end
             ll += log(λtot)
-            continue
         end
-        parentindex = 1
-        while parentindex < childindex
-            parenttime = events[parentindex]
-            parentchannel = nodes[parentindex]
-            Δt = childtime - parenttime
-            # a = A[parentchannel, childchannel]
-            # λtot += a * ir[parentchannel, childchannel](Δt)
-            λtot += ir[parentchannel, childchannel](Δt)
-            parentindex += 1
-        end
-        ll += log(λtot)
     end
     return ll
 end
 
-function truncated_loglikelihood(p::StandardHawkesProcess, events, nodes, T, λ0, W, θ, Δtmax)
+function truncated_loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ, Δtmax)
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
-    # Calculate integrated intensity
-    ll -= sum(λ0) * T
-    I = zeros(nchannels)
-    for parentchannel in nodes
-        I .+= W[parentchannel, :]
-    end
-    ll -= sum(I)
-    # Calculate pointwise total intensity
-    ir = impulse_response(p, W, θ)
-    for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
-        λtot = λ0[childchannel]
-        if childindex == 1
+    for (events, nodes) in data
+        # Calculate integrated intensity
+        ll -= sum(λ0) * T
+        I = zeros(nchannels)
+        for parentchannel in nodes
+            I .+= W[parentchannel, :]
+        end
+        ll -= sum(I)
+        # Calculate pointwise total intensity
+        ir = impulse_response(p, W, θ)
+        for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
+            λtot = λ0[childchannel]
+            if childindex == 1
+                ll += log(λtot)
+                continue
+            end
+            parentindex = childindex - 1
+            while events[parentindex] > childtime - Δtmax
+                parenttime = events[parentindex]
+                parentchannel = nodes[parentindex]
+                Δt = childtime - parenttime
+                λtot += ir[parentchannel, childchannel](Δt)
+                parentindex -= 1
+                parentindex == 0 && break
+            end
             ll += log(λtot)
-            continue
         end
-        parentindex = childindex - 1
-        while events[parentindex] > childtime - Δtmax
-            parenttime = events[parentindex]
-            parentchannel = nodes[parentindex]
-            Δt = childtime - parenttime
-            λtot += ir[parentchannel, childchannel](Δt)
-            parentindex -= 1
-            parentindex == 0 && break
-        end
-        ll += log(λtot)
     end
     return ll
 end
 
-function mle(p::StandardHawkesProcess, events, nodes, T; Δtmax=Inf)
+function mle(p::StandardHawkesProcess, data, T, Δtmax=Inf)
     x0 = pack(p)
 
     function f(x)
         λ0, W, θ = unpack(p, x)
-        return -truncated_loglikelihood(p, events, nodes, T, λ0, W, θ, Δtmax)
+        return -truncated_loglikelihood(p, data, T, λ0, W, θ, Δtmax)
     end
 
     lower = [zeros(size(p.λ0)) zeros(size(p.W)) zeros(size(p.θ))]
@@ -206,15 +287,17 @@ function mle(p::StandardHawkesProcess, events, nodes, T; Δtmax=Inf)
     return λ0, W, θ
 end
 
-function pack(process::NetworkHawkesProcess)
+function map(p::StandardHawkesProcess, data, T, Δtmax=Inf) end
+
+function pack(p::NetworkHawkesProcess)
     return [copy(p.λ0) copy(p.W) copy(p.μ) copy(p.τ)]
 end
 
-function unpack(process::NetworkHawkesProcess, arr)
+function unpack(p::NetworkHawkesProcess, arr)
     λ0 = arr[:, 1]
-    W = arr[:, 2:2 + (N - 1)]
-    μ = arr[:, (2 + N):(2 + 2 * N - 1)]
-    τ = arr[:, (2 + 2 * N):(2 + 3 * N - 1)]
+    W = arr[:, 2:2 + (p.N - 1)]
+    μ = arr[:, (2 + p.N):(2 + 2 * p.N - 1)]
+    τ = arr[:, (2 + 2 * p.N):(2 + 3 * p.N - 1)]
     return λ0, W, μ, τ
 end
 
@@ -223,60 +306,63 @@ function impulse_response(p::NetworkHawkesProcess, W, μ, τ)
     return intensity.(P)
 end
 
-function loglikelihood(p::NetworkHawkesProcess, events, nodes, T, λ0, W, μ, τ)
+function loglikelihood(p::NetworkHawkesProcess, data, T, λ0, W, μ, τ)
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
-    # Calculate integrated intensity
-    ll -= sum(λ0) * T
-    I = zeros(nchannels)
-    for parentchannel in nodes
-        I .+= W[parentchannel, :]
-    end
-    ll -= sum(I)
-    # Calculate pointwise total intensity  TODO: parallelize
-    ir = impulse_response(p, W, μ, τ)
-    for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
-        λtot = λ0[childchannel]
-        if childindex == 1
+    for (events, nodes) in data
+        # Calculate integrated intensity
+        ll -= sum(λ0) * T
+        I = zeros(nchannels)
+        for parentchannel in nodes
+            I .+= W[parentchannel, :]
+        end
+        ll -= sum(I)
+        # Calculate pointwise total intensity  TODO: parallelize
+        ir = impulse_response(p, W, μ, τ)
+        for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
+            λtot = λ0[childchannel]
+            if childindex == 1
+                ll += log(λtot)
+                continue
+            end
+            parentindex = childindex - 1
+            while events[parentindex] > childtime - p.Δtmax
+                parenttime = events[parentindex]
+                parentchannel = nodes[parentindex]
+                Δt = childtime - parenttime
+                λtot += ir[parentchannel, childchannel](Δt)
+                parentindex -= 1
+                parentindex == 0 && break
+            end
             ll += log(λtot)
-            continue
         end
-        parentindex = childindex - 1
-        while events[parentindex] > childtime - p.Δtmax
-            parenttime = events[parentindex]
-            parentchannel = nodes[parentindex]
-            Δt = childtime - parenttime
-            λtot += ir[parentchannel, childchannel](Δt)
-            parentindex -= 1
-            parentindex == 0 && break
-        end
-        ll += log(λtot)
     end
     return ll
 end
 
-function mle(p::NetworkHawkesProcess, events, nodes, T)
+function mle(p::NetworkHawkesProcess, data, T)
     x0 = pack(p)
 
     function f(x)
         λ0, W, μ, τ = unpack(p, x)
-        return -loglikelihood(p, events, nodes, T, λ0, W, μ, τ)
+        return -loglikelihood(p, data, T, λ0, W, μ, τ)
     end
 
     N = p.N
     lower = [zeros(N) zeros(N,N) -Inf * ones(N,N) zeros(N,N)]
     upper = [Inf * ones(N) Inf * ones(N,N) Inf * ones(N,N) Inf * ones(N,N)]
     method = LBFGS()
-    # start_time = time()
-    # function status_update(o)
-    #     println("iter=$(o.iteration), elapsed=$(time() - start_time)")
-    #     return false
-    # end
-    # options = Optim.Options(callback=status_update)
-    # opt = optimize(f, lower, upper, x0, Fminbox(method), options)
-    opt = optimize(f, lower, upper, x0, Fminbox(method))
+    start_time = time()
+    function status_update(o)
+        println("iter=$(o.iteration), elapsed=$(time() - start_time)")
+        return false
+    end
+    options = Optim.Options(callback=status_update)
+    opt = optimize(f, lower, upper, x0, Fminbox(method), options)
     @info opt
     λ0, W, μ, τ = unpack(p, minimizer(opt))
     return λ0, W, μ, τ
 end
+
+function map(p::NetworkHawkesProcess, data, T) end
