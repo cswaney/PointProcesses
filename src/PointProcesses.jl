@@ -20,6 +20,7 @@ export PoissonProcess,
        LinearProcess,
        ExponentialProcess,
        LogitNormalProcess,
+       LinearSplineProcess,
        HawkesProcess,
        rand,
        loglikelihood,
@@ -36,6 +37,7 @@ include("inference/mcmc/DiscreteHawkesProcess.jl")
 include("inference/mcmc/Network.jl")
 include("inference/vb/DiscreteHawkesProcess.jl")
 include("inference/vb/Network.jl")
-export mcmc, vb
+include("inference/mle/HawkesProcess.jl")
+export mcmc, vb, mle
 
 end # module
