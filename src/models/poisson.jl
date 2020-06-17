@@ -208,78 +208,49 @@ loglikelihood(p::LinearSplineProcess, ts, T) = log(likelihood(p, ts, T))
 
 function rand(p::LinearSplineProcess, T)
     # integrated intensity
-    # I = 0.
-    # for i = 1:p.n
-    #     t0 = p.ts[i]
-    #     t1 = p.ts[i + 1]
-    #     λ0 = p.λs[i]
-    #     λ1 = p.λs[i + 1]
-    #     I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
-    # end
-    # n = rand(Poisson(I))
-    # ts = rand(... t ~ λ(t) / I , n)
-    # return sort(ts)
-    events = []
-    for t in p.ts
-        i = min(Int(t ÷ p.Δt + 1), p.n)
-        t0 = p.ts[i]
-        t1 = p.ts[i + 1]
-        λ0 = p.λs[i]
-        λ1 = p.λs[i + 1]
-        I = p.Δt * (λ0 + 1/2 * (λ1 - λ0))
-        n = rand(Poisson(I))
-        append!(events, rand(Uniform(t0, t1), n))
-    end
-    return events
-end
-
-function loglikelihood(p::LinearSplineProcess, λs, events, T)
-    # integrated intensity
     I = 0.
     for i = 1:p.n
         t0 = p.ts[i]
         t1 = p.ts[i + 1]
-        λ0 = λs[i]
-        λ1 = λs[i + 1]
+        λ0 = p.λs[i]
+        λ1 = p.λs[i + 1]
         I += p.Δt * (λ0 + 1/2 * (λ1 - λ0))
     end
-    a = exp(-I)
-    # product of intensity
-    b = 1.
-    for t in events
-        i = min(Int(t ÷ p.Δt + 1), p.n)
-        t0 = p.ts[i]
-        t1 = p.ts[i + 1]
-        λ0 = λs[i]
-        λ1 = λs[i + 1]
-        b *= λ0 + (λ1 - λ0) * (t - t0) / p.Δt
+    n = rand(Poisson(I))
+    # temporal distribution
+    ts = sample(p, n, T)
+    return sort(ts)
+    # events = []
+    # for t in p.ts
+    #     i = min(Int(t ÷ p.Δt + 1), p.n)
+    #     t0 = p.ts[i]
+    #     t1 = p.ts[i + 1]
+    #     λ0 = p.λs[i]
+    #     λ1 = p.λs[i + 1]
+    #     I = p.Δt * (λ0 + 1/2 * (λ1 - λ0))
+    #     n = rand(Poisson(I))
+    #     append!(events, rand(Uniform(t0, t1), n))
+    # end
+    # return events
+end
+
+function sample(p::LinearSplineProcess, n, T)
+    """Sample from the distribution defined by the linear spline using rejection-sampling (i.e. sample from 2-dimension rectangle containing spline graph and reject samples that lie above the graph).
+
+    This method is slow, but accurate.
+    """
+    λ = intensity(p)
+    # find the maximum λs => λmax
+    λmax = maximum(p.λs)
+    # sample uniformly over [0, T] x [0, λmax] => z
+    U = Product([Uniform(0, T), Uniform(0, λmax)])
+    # for each z, accept if z[2] < intensity(p)(z[1])
+    s = []
+    while length(s) < n
+        z = rand(U, n)
+        if z[2] < λ(z[1])
+            push!(s, z[1])
+        end
     end
-    return log(a * b)
-end
-
-using Optim
-import Optim: minimizer, summary
-function mle(process::LinearSplineProcess, events, T)
-    x0 = copy(process.λs)
-    f(x) = -loglikelihood(process, x, events, T)
-    lower = zeros(process.n + 1)
-    upper = Inf .* ones(process.n + 1)
-    method = LBFGS()
-    opt = optimize(f, lower, upper, x0, Fminbox(method))
-    @info opt
-    λmax = minimizer(opt)
-    return λmax
-end
-
-function sample_parents(p::LinearSplineProcess, events)
-    """
-        - Assign parents to one of the `n + 1` constant background processes.
-        - Each process has probability determined by its contribution to intensity.
-        - Thus, two potential parents at each `t`.
-    """
-end
-function sample_background(p::LinearSplineProcess, events)
-    """
-        - Decompose intensity into the constant background processes.
-    """
+    return s
 end
