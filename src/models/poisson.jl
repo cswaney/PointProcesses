@@ -161,11 +161,15 @@ struct LinearSplineProcess <: PoissonProcess
     n::Int64  # xi = t0 + Δt * i, i = 0, ..., n
     ts::Array{Float64,1}
     λs::Array{Float64,1}  # λ0, λ1, ..., λn
+    # hyperparameters
+    α0::Float64
+    β0::Float64
 end
 
 function LinearSplineProcess(t0, Δt, n, λs)
     ts = t0 .+ Δt .* 0:1:n
-    return LinearSplineProcess(t0, Δt, n, ts, λs)
+    α0 = β0 = 1.;
+    return LinearSplineProcess(t0, Δt, n, ts, λs, α0, β0)
 end
 
 function intensity(p::LinearSplineProcess)

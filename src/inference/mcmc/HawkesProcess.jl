@@ -119,6 +119,55 @@ function baseline_counts(nodes, parentnodes, size)
 end
 
 
+function sample_baseline!(p::LinearSplineProcess, events, nodes, parents)
+    Mk = baseline_counts(nothing, parents, nothing, p.n)  # K = number of spline knots
+    α = p.α0 .+ Mk
+    β = p.β0 .+ p.Δt  # (rate)
+    p.λs = rand.(Gamma.(α, 1 ./ β))  # θ = 1 / β (scale)
+    return copy(p.λs)
+    # Mk = baseline_counts(nodes, parents, p.N, p.K)  # K = number of spline knots
+    # α = p.α0 .+ Mk
+    # β = p.β0 .+ p.Δt  # (rate)
+    # p.λs = rand.(Gamma.(α, 1 ./ β))  # θ = 1 / β (scale)
+    # return copy(p.λs)
+end
+
+function sample_baseline(p::LinearSplineProcess, data, parents)
+    Mk = baseline_counts(data, parents, nothing, p.n)  # K = number of spline knots
+    α = p.α0 .+ Mk
+    β = zeros(p.n + 1)
+    β[[1, p.n + 1]] .= p.β0 .+ 1 / 2 * p.Δt * length(data)  # (rate)
+    β[2:p.n] .= p.β0 .+ p.Δt * length(data)  # (rate)
+    return rand.(Gamma.(α, 1 ./ β))  # θ = 1 / β (scale)
+    # Mk = baseline_counts(nodes, parents, p.N, p.K)  # K = number of spline knots
+    # α = p.α0 .+ Mk
+    # β = p.β0 .+ p.Δt  # (rate)
+    # p.λs = rand.(Gamma.(α, 1 ./ β))  # θ = 1 / β (scale)
+    # return copy(p.λs)
+end
+
+function baseline_counts(data, parents, nchannels, nbaselines)
+    cnts = zeros(nbaselines + 1)
+    for (nodes, parentnodes) in zip(data, parents)
+        for node in parentnodes
+            if node < 0
+                index = -node
+                cnts[index] += 1
+            end
+        end
+    end
+    return cnts
+    # cnts = zeros(nbaselines, nchannels)
+    # for (node, parentnode) in zip(nodes, parentnodes)
+    #     if parentnode < 0
+    #         index = -parentnode
+    #         cnts[index][node] += 1
+    #     end
+    # end
+    # return cnts
+end
+
+
 """
     sample_impulse_response(events, nodes, parents, θ)
 
@@ -472,6 +521,34 @@ function psample_parent(λ0, θ, W, A, index, events, nodes)
 end
 
 
+function sample_parents(p::LinearSplineProcess, data)
+    """
+        - Assign parents to one of the `n + 1` constant background processes.
+        - Each process has probability determined by its contribution to intensity.
+        - Thus, two potential parents at each `t`.
+    """
+    parents = []
+    for (eidx, events) in enumerate(data)
+        push!(parents, zeros(Int64, length(events)))
+        for (tidx, t) in enumerate(events)
+            k = min(Int(t ÷ p.Δt + 1), p.n)  # k ∈ {1, ..., n}
+            t0 = p.ts[k]
+            t1 = p.ts[k + 1]
+            λ0 = p.λs[k]
+            λ1 = p.λs[k + 1]
+            Z = (λ1 * (t - t0) + λ0 * (t1 - t))
+            s = rand(Bernoulli(λ0 * (t1 - t) / Z))
+            if s == 1
+                parents[eidx][tidx] = -k
+            else
+                parents[eidx][tidx] = -(k + 1)
+            end
+        end
+    end
+    return parents
+end
+
+
 """
     mcmc(p::NetworkHawkesProcess, data, params, n::Int32)
 
@@ -552,4 +629,18 @@ function mcmc(process::StandardHawkesProcess, data, nsamples::Int64)
         W[i] = sample_weights!(process, events, nodes, parentnodes)
     end
     return λ0, W, θ
+end
+
+
+function mcmc(p::LinearSplineProcess, data, nsamples::Int64)
+    λs = Array{typeof(p.λs),1}(undef,nsamples)
+    for i = 1:nsamples
+        if i % 100 == 0
+            @info "i=$i"
+        end
+        parents = sample_parents(p, data)
+        λs[i] = sample_baseline(p, data, parents)
+        p = LinearSplineProcess(p.t0, p.Δt, p.n, λs[i])
+    end
+    return λs
 end
