@@ -18,14 +18,14 @@ A = ones(N, N)
 net = DenseNetwork(N)
 p = StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
 
-T = 2000.;
-ntrials = 10;
+T = 20000.;
+ntrials = 1;
 data = [];
 for _ in 1:ntrials
     push!(data, rand(p, T));
 end
 
-@time θ_trunc = mle(p, data, T, Δtmax=5.);
-@info θ_trunc[1]
-@info θ_trunc[2]
-@info θ_trunc[3]
+@time λ0_mle, W_mle, θ_mle = mle(p, data, T);
+@info λ0_mle
+@info W_mle
+@info θ_mle
