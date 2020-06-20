@@ -192,6 +192,7 @@ end
 `data::Array{Tuple{Array{Float64,1},Array{Float64,1}}},1}`
 """
 function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
+
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
@@ -203,71 +204,84 @@ function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
             I .+= W[parentchannel, :]
         end
         ll -= sum(I)
-        # Calculate pointwise total intensity
-        ir = impulse_response(p, W, θ)
+        # Calculate intensity product
+        R = zeros(p.N, p.N)
+        # parentchannel = 0
+        parenttimes = zeros(p.N)  # most recent event on each channel
         for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
             λtot = λ0[childchannel]
-            if childindex == 1
-                ll += log(λtot)
-                continue
+            # Update recursive sums for child channel
+            if parenttimes[childchannel] > 0.
+                Δt = childtime - parenttimes[childchannel]
+                e = vec(exp.(- Δt ./ θ[childchannel, :]))
+                R[childchannel, :] .= e .* (1 .+ R[childchannel, :])
             end
-            parentindex = 1
-            while parentindex < childindex
-                parenttime = events[parentindex]
-                parentchannel = nodes[parentindex]
-                Δt = childtime - parenttime
-                # a = A[parentchannel, childchannel]
-                # λtot += a * ir[parentchannel, childchannel](Δt)
-                λtot += ir[parentchannel, childchannel](Δt)
-                parentindex += 1
+            # Calculate recursive sums from parent channels
+            for parentchannel = 1:p.N
+                parenttime = parenttimes[parentchannel]
+                if parenttime > 0.
+                    if parentchannel == childchannel
+                        r = R[parentchannel, childchannel]
+                        w = W[parentchannel, childchannel]
+                        λtot += w * 1 / θ[parentchannel, childchannel] * r
+                    else
+                        Δt = childtime - parenttime
+                        e = exp(- Δt / θ[parentchannel, childchannel])
+                        r = 1 + R[parentchannel, childchannel]
+                        w = W[parentchannel, childchannel]
+                        λtot += w * 1 / θ[parentchannel, childchannel] * e * r
+                    end
+                end
             end
+            # @info "λtot=$λtot"
             ll += log(λtot)
+            parenttimes[childchannel] = childtime
         end
     end
     return ll
+
+    # typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
+    # nchannels = p.N
+    # ll = 0.
+    # for (events, nodes) in data
+    #     # Calculate integrated intensity
+    #     ll -= sum(λ0) * T
+    #     I = zeros(nchannels)
+    #     for parentchannel in nodes
+    #         I .+= W[parentchannel, :]
+    #     end
+    #     ll -= sum(I)
+    #     # Calculate intensity product
+    #     ir = impulse_response(p, W, θ)
+    #     for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
+    #         λtot = λ0[childchannel]
+    #         if childindex == 1
+    #             # @info "λtot=$λtot"
+    #             ll += log(λtot)
+    #             continue
+    #         end
+    #         parentindex = 1
+    #         while parentindex < childindex
+    #             parenttime = events[parentindex]
+    #             parentchannel = nodes[parentindex]
+    #             Δt = childtime - parenttime
+    #             λtot += ir[parentchannel, childchannel](Δt)
+    #             parentindex += 1
+    #         end
+    #         # @info "λtot=$λtot"
+    #         ll += log(λtot)
+    #     end
+    # end
+    # return ll
 end
 
-function truncated_loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ, Δtmax)
-    typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
-    nchannels = p.N
-    ll = 0.
-    for (events, nodes) in data
-        # Calculate integrated intensity
-        ll -= sum(λ0) * T
-        I = zeros(nchannels)
-        for parentchannel in nodes
-            I .+= W[parentchannel, :]
-        end
-        ll -= sum(I)
-        # Calculate pointwise total intensity
-        ir = impulse_response(p, W, θ)
-        for (childindex, (childtime, childchannel)) in enumerate(zip(events, nodes))
-            λtot = λ0[childchannel]
-            if childindex == 1
-                ll += log(λtot)
-                continue
-            end
-            parentindex = childindex - 1
-            while events[parentindex] > childtime - Δtmax
-                parenttime = events[parentindex]
-                parentchannel = nodes[parentindex]
-                Δt = childtime - parenttime
-                λtot += ir[parentchannel, childchannel](Δt)
-                parentindex -= 1
-                parentindex == 0 && break
-            end
-            ll += log(λtot)
-        end
-    end
-    return ll
-end
-
-function mle(p::StandardHawkesProcess, data, T, Δtmax=Inf)
+function mle(p::StandardHawkesProcess, data, T)
     x0 = pack(p)
 
     function f(x)
         λ0, W, θ = unpack(p, x)
-        return -truncated_loglikelihood(p, data, T, λ0, W, θ, Δtmax)
+        # return -loglikelihood(p, data, T, λ0, W, θ)
+        return -sum([loglikelihood(p, [d], T, λ0, W, θ) for d in data])
     end
 
     lower = [zeros(size(p.λ0)) zeros(size(p.W)) zeros(size(p.θ))]
