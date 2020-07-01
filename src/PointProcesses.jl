@@ -17,6 +17,7 @@ include("models/HawkesProcess.jl")
 include("models/DiscreteHawkesProcess.jl")
 export PoissonProcess,
        HomogeneousProcess,
+       MultivariateHomogeneousProcess,
        LinearProcess,
        ExponentialProcess,
        LogitNormalProcess,

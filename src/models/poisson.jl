@@ -57,6 +57,40 @@ end
 
 
 """
+A multivariate homoogeneous Poisson process.
+"""
+struct MultivariateHomogeneousProcess <: PoissonProcess
+    λ  # len(λ) = N
+    N
+end
+
+MultivariateHomogeneousProcess(λ) = MultivariateHomogeneousProcess(λ, length(λ))
+
+intensity(p::MultivariateHomogeneousProcess) = t -> p.λ
+
+function likelihood(p::MultivariateHomogeneousProcess, data, T)
+    a = exp(-sum(p.λ) * T)
+    b = 1.
+    for (event, node) in zip(data...)
+        b *= p.λ[node]
+    end
+    return a * b
+end
+
+loglikelihood(p::MultivariateHomogeneousProcess, data, T) = log(likelihood(p, data, T))
+
+function rand(p::MultivariateHomogeneousProcess, T)
+    n = rand.(Poisson.(p.λ .* T))
+    events = rand.(Uniform(0, T), n)
+    nodes = [length(e) for e in events]
+    events = vcat(events)
+    nodes = vcat(events)
+    idx = argsort(events)
+    return events[idx], nodes[idx]
+end
+
+
+"""
 A Poisson process with linear intensity function.
 """
 struct LinearProcess <: PoissonProcess
