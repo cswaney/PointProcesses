@@ -51,6 +51,35 @@ function mle(process::HomogeneousProcess, data, T)
     return λmax
 end
 
+"""
+# Arguments
+- `data::Array{Tuple{Array{Float64,1},Array{Int64,1}}, 1}`: array of trial data.
+"""
+function loglikelihood(p::MultivariateHomogeneousProcess, λ, data, T)
+    ll = 0.
+    for (events, nodes) in data
+        a = -sum(λ) * T
+        b = 0.
+        for (event, node) in zip(events, nodes)
+            b += log(λ[node])
+        end
+        ll += a + b
+    end
+    return ll
+end
+
+function mle(process::MultivariateHomogeneousProcess, data, T)
+    λ0 = copy(process.λ)
+    f(x) = -loglikelihood(process, x, data, T)
+    lower = zeros(process.N)
+    upper = Inf .* ones(process.N)
+    method = LBFGS()
+    opt = optimize(f, lower, upper, λ0, Fminbox(method))
+    @info opt
+    λmax = minimizer(opt)
+    return λmax
+end
+
 
 function loglikelihood(p::ExponentialProcess, w, θ, data, T)
     # N = length(events)
