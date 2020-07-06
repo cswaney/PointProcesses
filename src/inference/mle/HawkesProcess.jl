@@ -39,9 +39,26 @@ function loglikelihood(p::HomogeneousProcess, λ, data, T)
     return ll
 end
 
+function prior(p::HomogeneousProcess, λ, θ)
+    α, β = θ
+    return pdf(Gamma(α, 1 / β), λ)
+end
+
 function mle(process::HomogeneousProcess, data, T)
     λ0 = copy(process.λ)
     f(x) = -loglikelihood(process, x[1], data, T)
+    lower = [0.]
+    upper = [Inf]
+    method = LBFGS()
+    opt = optimize(f, lower, upper, [λ0], Fminbox(method))
+    @info opt
+    λmax = minimizer(opt)
+    return λmax
+end
+
+function map(process::HomogeneousProcess, data, T, θ)
+    λ0 = copy(process.λ)
+    f(x) = -loglikelihood(process, x[1], data, T) - log(prior(process, x[1], θ))
     lower = [0.]
     upper = [Inf]
     method = LBFGS()
@@ -68,6 +85,12 @@ function loglikelihood(p::MultivariateHomogeneousProcess, λ, data, T)
     return ll
 end
 
+function prior(p::MultivariateHomogeneousProcess, λ, θ)
+    """Note: uses the same hyperparameters for all nodes."""
+    α, β = θ
+    return prod(pdf.(Gamma(α, 1 / β), λ))
+end
+
 function mle(process::MultivariateHomogeneousProcess, data, T)
     λ0 = copy(process.λ)
     f(x) = -loglikelihood(process, x, data, T)
@@ -80,6 +103,17 @@ function mle(process::MultivariateHomogeneousProcess, data, T)
     return λmax
 end
 
+function map(process::MultivariateHomogeneousProcess, data, T, θ)
+    λ0 = copy(process.λ)
+    f(x) = -loglikelihood(process, x, data, T) - log(prior(process, x, θ))
+    lower = zeros(process.N)
+    upper = Inf .* ones(process.N)
+    method = LBFGS()
+    opt = optimize(f, lower, upper, λ0, Fminbox(method))
+    @info opt
+    λmax = minimizer(opt)
+    return λmax
+end
 
 function loglikelihood(p::ExponentialProcess, w, θ, data, T)
     # N = length(events)
