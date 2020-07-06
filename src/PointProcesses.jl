@@ -39,6 +39,6 @@ include("inference/mcmc/Network.jl")
 include("inference/vb/DiscreteHawkesProcess.jl")
 include("inference/vb/Network.jl")
 include("inference/mle/HawkesProcess.jl")
-export mcmc, vb, mle
+export mcmc, vb, mle, map
 
 end # module
