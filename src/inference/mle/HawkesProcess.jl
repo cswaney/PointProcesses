@@ -85,6 +85,16 @@ function loglikelihood(p::MultivariateHomogeneousProcess, λ, data, T)
     return ll
 end
 
+function predictive_loglikelihood(p::MultivariateHomogeneousProcess, sample, data, T)
+    L = length(sample)
+    ll = 0.
+    for i = 1:L
+        λ = sample[i]
+        ll += loglikelihood(p, λ, data, T)
+    end
+    return ll / L
+end
+
 function prior(p::MultivariateHomogeneousProcess, λ, θ)
     """Note: uses the same hyperparameters for all nodes."""
     α, β = θ
