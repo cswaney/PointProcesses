@@ -104,7 +104,7 @@ function loglikelihood(p::MultivariateHomogeneousProcess, data, T)
     return ll
 end
 
-function predictive_loglikelihood(p::MultivariateHomogeneousProcess, data, T, sample)
+function predictive_loglikelihood(p::MultivariateHomogeneousProcess, sample, data, T)
     pcopy = deepcopy(p)
     L = length(sample)
     ll = 0.
