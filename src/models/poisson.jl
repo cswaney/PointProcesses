@@ -62,11 +62,25 @@ A multivariate homoogeneous Poisson process.
 struct MultivariateHomogeneousProcess <: PoissonProcess
     λ  # len(λ) = N
     N
+    # hyperparameters
+    α0
+    β0
 end
 
-MultivariateHomogeneousProcess(λ) = MultivariateHomogeneousProcess(λ, length(λ))
+MultivariateHomogeneousProcess(λ) = MultivariateHomogeneousProcess(λ, length(λ), 1., 1.)
 
 intensity(p::MultivariateHomogeneousProcess) = t -> p.λ
+
+prior(p::MultivariateHomogeneousProcess) = Gamma(p.α0, 1 / p.β0)
+
+function posterior(p::MultivariateHomogeneousProcess, data, T)
+    Mn = zeros(p.N)
+    events, nodes = data
+    for (event, node) in zip(events, nodes)
+        Mn[node] += 1
+    end
+    return Gamma.(p.α0 .+ Mn, 1 / (p.β0 + T))
+end
 
 function likelihood(p::MultivariateHomogeneousProcess, data, T)
     a = exp(-sum(p.λ) * T)
@@ -77,7 +91,29 @@ function likelihood(p::MultivariateHomogeneousProcess, data, T)
     return a * b
 end
 
-loglikelihood(p::MultivariateHomogeneousProcess, data, T) = log(likelihood(p, data, T))
+function loglikelihood(p::MultivariateHomogeneousProcess, data, T)
+    ll = 0.
+    for (events, nodes) in data
+        a = -sum(p.λ) * T
+        b = 0.
+        for (event, node) in zip(events, nodes)
+            b += log(p.λ[node])
+        end
+        ll += a + b
+    end
+    return ll
+end
+
+function predictive_loglikelihood(p::MultivariateHomogeneousProcess, data, T, sample)
+    pcopy = deepcopy(p)
+    L = length(sample)
+    ll = 0.
+    for i = 1:L
+        pcopy.λ = sample[i]
+        ll += loglikelihood(p, data, T)
+    end
+    return ll / L
+end
 
 function rand(p::MultivariateHomogeneousProcess, T)
     n = rand.(Poisson.(p.λ .* T))
