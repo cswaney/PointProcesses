@@ -234,6 +234,90 @@ function loglikelihood(p::StandardHawkesProcess, events, nodes, T)
     return ll
 end
 
+function augmented_loglikelihood(p::NetworkHawkesProcess, events, nodes, parents, T)
+    nchannels = p.N
+    ll = 0.
+    # Calculate integrated intensity
+    ll -= sum(p.λ0) * T
+    W = zeros(nchannels)
+    for parentchannel in nodes
+        W .+= p.W[parentchannel, :]
+    end
+    ll -= sum(W)
+    # Calculate pointwise total intensity
+    ir = impulse_response(p)
+    for (childindex, (childtime, childchannel, parentindex)) in enumerate(zip(events, nodes, parents))
+        if parentindex > 0  # spawned event
+            parentchannel = nodes[parentindex]
+            parenttime = events[parentindex]
+            Δt = childtime - parenttime
+            if p.A[parentchannel, childchannel] == 1
+                ll += log(ir[parentchannel, childchannel](Δt))
+            end
+        else  # background event
+            ll += log(p.λ0[childchannel])
+        end
+    end
+    return ll
+end
+
+function augmented_loglikelihood(p::StandardHawkesProcess, events, nodes, parents, T)
+    nchannels = p.N
+    ll = 0.
+    # Calculate integrated intensity
+    ll -= sum(p.λ0) * T
+    W = zeros(nchannels)
+    for parentchannel in nodes
+        W .+= p.W[parentchannel, :]
+    end
+    ll -= sum(W)
+    # Calculate pointwise total intensity
+    ir = impulse_response(p)
+    for (childindex, (childtime, childchannel, parentindex)) in enumerate(zip(events, nodes, parents))
+        if parentindex > 0  # spawned event
+            parentchannel = nodes[parentindex]
+            parenttime = events[parentindex]
+            Δt = childtime - parenttime
+            ll += log(ir[parentchannel, childchannel](Δt))
+        else  # background event
+            ll += log(p.λ0[childchannel])
+        end
+    end
+    return ll
+end
+
+function predictive_loglikelihood(p::NetworkHawkesProcess, sample, events, nodes, T)
+    pcopy = deepcopy(p)
+    parents, λ0, μ, τ, A, W = sample
+    L = length(parents)
+    ll = 0.
+    for i = 1:L
+        pcopy.λ0 = λ0[i]
+        pcopy.μ = μ[i]
+        pcopy.τ = τ[i]
+        pcopy.A = A[i]
+        pcopy.W = W[i]
+        ll += augmented_loglikelihood(p, events, nodes, parents[i], T)
+    end
+    return ll / L
+end
+
+function predictive_loglikelihood(p::StandardHawkesProcess, sample, events, nodes, T)
+    pcopy = deepcopy(p)
+    parents, λ, θ, A, W = sample
+    L = length(parents)
+    ll = 0.
+    for i = 1:L
+        pcopy.λ = λ[i]
+        pcopy.θ = θ[i]
+        pcopy.A = A[i]
+        pcopy.W = W[i]
+        ll += augmented_loglikelihood(p, events, nodes, parents[i], T)
+    end
+    return ll / L
+    return ll
+end
+
 
 """
     intensity(p::HawkesProcess, events, nodes, t0)
