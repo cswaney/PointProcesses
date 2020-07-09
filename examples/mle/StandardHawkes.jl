@@ -5,7 +5,7 @@ using PointProcesses
 
 
 N = 2
-λ0 = ones(N)
+λ0 = 0.1 * ones(N)
 W = 0.1 * ones(N, N)
 A = ones(N, N)
 θ = ones(N, N)

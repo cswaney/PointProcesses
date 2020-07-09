@@ -5,9 +5,9 @@ addprocs(4)
 @everywhere using PointProcesses
 
 
-N = 2;
+N = 12;
 λ0 = 0.1 * ones(N);
-W = 0.1 * ones(N, N);
+W = 0.05 * ones(N, N);
 A = ones(N, N)
 μ = zeros(N, N);
 τ = ones(N, N);
@@ -22,18 +22,32 @@ A = ones(N, N)
 βτ = 1.;
 net = DenseNetwork(N)
 p = NetworkHawkesProcess(λ0, μ, τ, A, W, Δtmax, N, α0, β0, κ, ν, μμ, κμ, ατ, βτ, net);
-plot_impulse_respones(p)
-T = 50000.;
+if N == 2
+    plot_impulse_respones(p)
+end
+T = 40000.;
 events, nodes = rand(p, T);
-plot_intensity(p, events[1:100], nodes[1:100], 1, events[100])
-plot_intensity(p, events[1:100], nodes[1:100], 2, events[100])
-nsamples = 2000;
+if N == 2
+    plot_intensity(p, events[1:100], nodes[1:100], 1, events[100])
+    plot_intensity(p, events[1:100], nodes[1:100], 2, events[100])
+end
+nsamples = 1000;
 @time λ0, μ, τ, W = mcmc(p, (events, nodes, T), nsamples);
-plot_λ0(λ0, burn=100)
-plot_W(W, burn=100)
-plot_μ(μ, burn=100)
-plot_τ(τ, burn=100)
+if N == 2
+    plot_λ0(λ0, burn=250)
+    plot_W(W, burn=250)
+    plot_μ(μ, burn=250)
+    plot_τ(τ, burn=250)
+end
+plot(x=1:N, y=median(hcat(λ0[251:end]...), dims=2), Geom.bar)
+plot(x=1:N * N, y=reshape(median(cat(W[251:end]..., dims=3), dims=3), N * N), Geom.bar)
+plot(x=1:N * N, y=reshape(median(cat(μ[251:end]..., dims=3), dims=3), N * N), Geom.bar)
+plot(x=1:N * N, y=reshape(median(cat(τ[251:end]..., dims=3), dims=3), N * N), Geom.bar)
 
+@info median(hcat(λ0...), dims=2)
+@info median(cat(W..., dims=3), dims=3)
+@info median(cat(μ..., dims=3), dims=3)
+@info median(cat(τ..., dims=3), dims=3)
 
 
 function plot_λ0(λ0; burn=0)
