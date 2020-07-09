@@ -52,6 +52,20 @@ mutable struct StandardHawkesProcess <: HawkesProcess
     net::Network
 end
 
+function StandardHawkesProcess(N)
+    λ0 = ones(N)
+    W = 0.1 * ones(N, N)
+    A = ones(N, N)
+    θ = ones(N, N)
+    α0 = 1.
+    β0 = 1.
+    κ = 1.
+    ν = ones(N, N)
+    αθ = 1.
+    βθ = 1.
+    net = DenseNetwork(N)
+    return StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
+end
 
 """
     rand(p::HawkesProcess, T::Float64)
