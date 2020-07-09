@@ -265,7 +265,9 @@ end
 `data::Array{Tuple{Array{Float64,1},Array{Float64,1}}},1}`
 """
 function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
-
+    any(λ0 .< 0.) && @error "λ0 contains negative values: $λ0"
+    any(W .< 0.) && @error "W contains negative values: $W"
+    any(θ .< 0.) && @error "θ contains negative values: $θ"
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
@@ -313,6 +315,7 @@ function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
     end
     return ll
 
+    # Slow version for testing only!
     # typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     # nchannels = p.N
     # ll = 0.
@@ -348,13 +351,51 @@ function loglikelihood(p::StandardHawkesProcess, data, T, λ0, W, θ)
     # return ll
 end
 
+function logprior(p::StandardHawkesProcess, λ0, W, θ)
+    any(λ0 .< 0.) && @error "λ0 contains negative values: $λ0"
+    any(W .< 0.) && @error "W contains negative values: $W"
+    any(θ .< 0.) && @error "θ contains negative values: $θ"
+    lp = sum(log.(pdf.(Gamma(p.α0, 1 / p.β0), λ0)))
+    lp += sum(log.(pdf.(Gamma(p.κ, 1 / p.ν), W)))
+    lp += sum(log.(pdf.(Gamma(p.αθ, 1 / p.βθ), θ)))
+    return lp
+end
+
 function mle(p::StandardHawkesProcess, data, T)
     x0 = pack(p)
 
     function f(x)
         λ0, W, θ = unpack(p, x)
-        # return -loglikelihood(p, data, T, λ0, W, θ)
-        return -sum([loglikelihood(p, [d], T, λ0, W, θ) for d in data])
+        return -loglikelihood(p, data, T, λ0, W, θ)
+        # return -sum([loglikelihood(p, [d], T, λ0, W, θ) for d in data])
+    end
+
+    # lower = [zeros(size(p.λ0)) zeros(size(p.W)) zeros(size(p.θ))]
+    lower = [1e-4 .* ones(size(p.λ0)) 1e-4 .* ones(size(p.W)) 1e-4 .* ones(size(p.θ))]
+    upper = [Inf * ones(size(p.λ0)) Inf * ones(size(p.W)) Inf * ones(size(p.θ))]
+    method = LBFGS()
+    start_time = time()
+    function status_update(o)
+        # println("$(fieldnames(typeof(o)))")
+        # println("$(o.metadata)")
+        println("iter=$(o.iteration), elapsed=$(time() - start_time)")
+        return false
+    end
+    options = Optim.Options(callback=status_update)
+    opt = optimize(f, lower, upper, x0, Fminbox(method), options)
+    @info opt
+    λ0, W, θ = unpack(p, minimizer(opt))
+    return λ0, W, θ
+end
+
+function map(p::StandardHawkesProcess, data, T, Δtmax=Inf)
+    x0 = pack(p)
+
+    function f(x)
+        λ0, W, θ = unpack(p, x)
+        nll = -loglikelihood(p, data, T, λ0, W, θ)
+        nlp = -logprior(p, λ0, W, θ)
+        return nll + nlp
     end
 
     lower = [zeros(size(p.λ0)) zeros(size(p.W)) zeros(size(p.θ))]
@@ -374,8 +415,6 @@ function mle(p::StandardHawkesProcess, data, T)
     return λ0, W, θ
 end
 
-function map(p::StandardHawkesProcess, data, T, Δtmax=Inf) end
-
 function pack(p::NetworkHawkesProcess)
     return [copy(p.λ0) copy(p.W) copy(p.μ) copy(p.τ)]
 end
@@ -394,6 +433,8 @@ function impulse_response(p::NetworkHawkesProcess, W, μ, τ)
 end
 
 function loglikelihood(p::NetworkHawkesProcess, data, T, λ0, W, μ, τ)
+    any(λ0 .< 0.) && @error "λ0 contains negative values: $λ0"
+    any(W .< 0.) && @error "W contains negative values: $W"
     typeof(p.net) != DenseNetwork && @error "Not implemented for $(typeof(p.net))"
     nchannels = p.N
     ll = 0.
@@ -428,6 +469,15 @@ function loglikelihood(p::NetworkHawkesProcess, data, T, λ0, W, μ, τ)
     return ll
 end
 
+function logprior(p::NetworkHawkesProcess, λ0, W, μ, τ)
+    any(λ0 .< 0.) && @error "λ0 contains negative values: $λ0"
+    any(W .< 0.) && @error "W contains negative values: $W"
+    lp = sum(log.(pdf.(Gamma(p.α0, 1 / p.β0), λ0)))
+    lp += sum(log.(pdf.(Gamma(p.κ, 1 / p.ν), W)))
+    lp += sum(log.(pdf.()))
+    return lp
+end
+
 function mle(p::NetworkHawkesProcess, data, T)
     x0 = pack(p)
 
@@ -452,4 +502,28 @@ function mle(p::NetworkHawkesProcess, data, T)
     return λ0, W, μ, τ
 end
 
-function map(p::NetworkHawkesProcess, data, T) end
+function map(p::NetworkHawkesProcess, data, T)
+    x0 = pack(p)
+
+    function f(x)
+        λ0, W, μ, τ = unpack(p, x)
+        nll = -loglikelihood(p, data, T, λ0, W, μ, τ)
+        nlp = -logprior(p, λ0, W, μ, τ)
+        return nll + nlp
+    end
+
+    N = p.N
+    lower = [zeros(N) zeros(N,N) -Inf * ones(N,N) zeros(N,N)]
+    upper = [Inf * ones(N) Inf * ones(N,N) Inf * ones(N,N) Inf * ones(N,N)]
+    method = LBFGS()
+    start_time = time()
+    function status_update(o)
+        println("iter=$(o.iteration), elapsed=$(time() - start_time)")
+        return false
+    end
+    options = Optim.Options(callback=status_update)
+    opt = optimize(f, lower, upper, x0, Fminbox(method), options)
+    @info opt
+    λ0, W, μ, τ = unpack(p, minimizer(opt))
+    return λ0, W, μ, τ
+end
