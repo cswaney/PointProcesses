@@ -33,6 +33,24 @@ mutable struct NetworkHawkesProcess <: HawkesProcess
     net::Network
 end
 
+function NetworkHawkesProcess(N, Δtmax, net)
+    λ0 = 0.1 * ones(N)
+    W = 0.05 * ones(N, N)
+    A = ones(N, N)
+    μ = zeros(N, N)
+    τ = ones(N, N)
+    α0 = 1.
+    β0 = 1.
+    κ = 1.
+    ν = ones(N, N)
+    μμ = 0.
+    κμ = 1.
+    ατ = 1.
+    βτ = 1.
+    p = NetworkHawkesProcess(λ0, μ, τ, A, W, Δtmax, N, α0, β0, κ, ν, μμ, κμ, ατ, βτ, net)
+    return p
+end
+
 
 mutable struct StandardHawkesProcess <: HawkesProcess
     # parameters
