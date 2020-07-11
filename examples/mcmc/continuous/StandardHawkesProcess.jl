@@ -1,13 +1,13 @@
 using Revise, Distributions, Gadfly, Distributed
-addprocs(8)
+addprocs(4)
 @everywhere using Pkg
 @everywhere Pkg.activate(".")
 @everywhere using PointProcesses
 
 
-N = 2
-λ0 = ones(N)
-W = 0.1 * ones(N, N)
+N = 12
+λ0 = 0.1 * ones(N)
+W = 0.05 * ones(N, N)
 A = ones(N, N)
 θ = ones(N, N)
 α0 = 1.
@@ -18,13 +18,16 @@ A = ones(N, N)
 βθ = 1.
 net = DenseNetwork(N)
 p = StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
-T = 1000.;
+T = 10000.;
 events, nodes = rand(p, T);
-nsamples = 2000;
+nsamples = 1000;
 @time λ0, W, θ = mcmc(p, (events, nodes, T), nsamples);
-plot_background(λ0, burn=100)
-plot_weights(W, burn=100)
-plot_impulse_response(θ, burn=100)
+# plot_background(λ0, burn=100)
+# plot_weights(W, burn=100)
+# plot_impulse_response(θ, burn=100)
+plot(x=1:N, y=median(hcat(λ0[251:end]...), dims=2), Geom.bar)
+plot(x=1:N * N, y=reshape(median(cat(W[251:end]..., dims=3), dims=3), N * N), Geom.bar)
+plot(x=1:N * N, y=reshape(median(cat(θ[251:end]..., dims=3), dims=3), N * N), Geom.bar)
 
 
 function plot_background(λ0; burn=0)

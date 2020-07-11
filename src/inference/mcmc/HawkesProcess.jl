@@ -459,7 +459,7 @@ function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
 end
 
 
-# TODO: parallelize!
+# TODO: parallelize
 function sample_parents(p::StandardHawkesProcess, events, nodes)
     parents = []
     for (index, (event, node)) in enumerate(zip(events, nodes))
@@ -469,6 +469,7 @@ function sample_parents(p::StandardHawkesProcess, events, nodes)
     return parents
 end
 
+# TODO: use recursive intensity calculation
 function sample_parent(p::StandardHawkesProcess, event, node, index, events, nodes)
     if index == 1
         return 0
@@ -498,6 +499,7 @@ function psample_parents(p::StandardHawkesProcess, events, nodes)
     return parents
 end
 
+# TODO: use recursive intensity calculation
 function psample_parent(λ0, θ, W, A, index, events, nodes)
     index == 1 && return 0
     λs = []
