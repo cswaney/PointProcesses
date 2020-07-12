@@ -36,7 +36,7 @@ Count events on each node.
 - `nodes::Array{Int}`: array of nodes in {1, ..., N}
 - `size::Int`: number of network nodes
 """
-function node_counts(nodes, size)
+function node_counts(nodes::Array{Int32,1}, size)
     cnts = zeros(size)
     for node in nodes
         cnts[node] += 1
@@ -44,8 +44,14 @@ function node_counts(nodes, size)
     return cnts
 end
 
+function node_counts(nodes::Array{Array{Int32,1},1}, size)
+    cnts = [node_counts(ns, size) for ns in nodes]
+    return sum(cnts)
+end
+
+
 """
-parent_counts(nodes, parents, size)
+parent_counts(nodes, parent_nodes, size)
 
 Count events on each node attributed to each other node.
 
@@ -53,7 +59,10 @@ Count events on each node attributed to each other node.
 - `parent_nodes::Array{Int}`: array of nodes in {0, ..., N}
 - `size::Int`: number of network nodes
 """
-function parent_counts(nodes, parent_nodes, size)
+function parent_counts(
+    nodes::Array{Int32,1},
+    parent_nodes::Array{Int32,1},
+    size)
     cnts = zeros(size, size)
     for (node, parent_node) in zip(nodes, parent_nodes)
         if parent_node > 0  # 0 => background event
@@ -61,6 +70,15 @@ function parent_counts(nodes, parent_nodes, size)
         end
     end
     return cnts
+end
+
+function parent_counts(
+    nodes::Array{Array{Int32,1},1},
+    parent_nodes::Array{Array{Int32,1},1},
+    size)
+    zipped = zip(nodes, parent_nodes)
+    cnts = [parent_counts(ns, pns, size) for (ns, pns) in zipped]
+    return sum(cnts)
 end
 
 function get_parent_node(nodes, parent)
@@ -71,6 +89,16 @@ function get_parent_node(nodes, parent)
     end
 end
 
+function get_parent_nodes(nodes::Array{Int32,1}, parents::Array{Int32,1})
+    return Array{Int32,1}([get_parent_node(nodes, p) for p in parents])
+end
+
+function get_parent_nodes(
+    nodes::Array{Array{Int32,1},1},
+    parents::Array{Array{Int32,1},1})
+    return [get_parent_nodes(ns, ps) for (ns, ps) in zip(nodes, parents)]
+end
+
 function get_parent_event(events, parent)
     if parent == 0
         return -1
@@ -79,28 +107,31 @@ function get_parent_event(events, parent)
     end
 end
 
+function get_parent_events(events, parents)
+    return [get_parent_event(nodes, p) for p in parents]
+end
+
 
 """
-sample_baseline(events, nodes, parent_nodes, T, θ)
+    sample_baseline(events, nodes, parent_nodes, T)
 
 Sample from the conditional posterior distribution of baseline intensity, `λ`.
 
-- `nodes::Array{Int}`: array of nodes in {1, ..., N}
-- `parent_nodes::Array{Int}`: array of nodes in {0, ..., N}
-- `T::Float64`: maximum of observation period
-- `θ`: tuple storing model parameters
+- `nodes::Array{Array{Int32,1},1}`: array of nodes in {1, ..., N}
+- `parent_nodes::Array{Array{Int32,1},1}`: array of nodes in {0, ..., N}
+- `lengths::Array{Float64}`: array of observation period lengths
 """
-function sample_baseline!(p::HawkesProcess, nodes, parentnodes, T)
-    M0 = baseline_counts(nodes, parentnodes, p.N)
+function sample_baseline!(p::HawkesProcess, nodes, parent_nodes, lengths)
+    M0 = baseline_counts(nodes, parent_nodes, p.N)
     α = p.α0 .+ M0
-    β = p.β0 .+ T  # (rate)
+    β = p.β0 .+ sum(lengths)  # (rate)
     p.λ0 = rand.(Gamma.(α, 1 ./ β))  # θ = 1 / β (scale)
     return copy(p.λ0)
 end
 
 
 """
-baseline_counts(nodes, parent_nodes, size)
+    baseline_counts(nodes, parent_nodes, size)
 
 Count events on each node attributed to its baseline intensity.
 
@@ -108,9 +139,12 @@ Count events on each node attributed to its baseline intensity.
 - `parent_nodes::Array{Int}`: array of nodes in {0, ..., N}
 - `size::Int`: numer of network nodes
 """
-function baseline_counts(nodes, parentnodes, size)
+function baseline_counts(
+    nodes::Array{Int32,1},
+    parent_nodes::Array{Int32,1},
+    size)
     cnts = zeros(size)
-    for (node, parentnode) in zip(nodes, parentnodes)
+    for (node, parentnode) in zip(nodes, parent_nodes)
         if parentnode == 0
             cnts[node] += 1
         end
@@ -118,6 +152,14 @@ function baseline_counts(nodes, parentnodes, size)
     return cnts
 end
 
+function baseline_counts(
+    nodes::Array{Array{Int32,1},1},
+    parent_nodes::Array{Array{Int32,1},1},
+    size)
+    zipped = zip(nodes, parent_nodes)
+    cnts = [baseline_counts(ns, pns, size) for (ns, pns) in zipped]
+    return sum(cnts)
+end
 
 function sample_baseline!(p::LinearSplineProcess, events, nodes, parents)
     Mk = baseline_counts(nothing, parents, nothing, p.n)  # K = number of spline knots
@@ -212,22 +254,42 @@ function log_duration(parent, child, Δtmax)
     return log((child - parent) / (Δtmax - (child - parent)))
 end
 
-function log_duration_sum(events, nodes, parents, size, Δtmax)
+function log_duration_sum(
+    events::Array{Float64,1},
+    nodes::Array{Int32,1},
+    parents::Array{Int32,1},
+    size,
+    Δtmax)
     Xnm = zeros(size, size)
-    # Mnm = zeros(size, size)
     for (event, node, parent) in zip(events, nodes, parents)
         if parent > 0
             parent_node = nodes[parent]
             parent_event = events[parent]
-            # Mnm[parent_node, node] += 1
             Xnm[parent_node, node] += log_duration(parent_event, event, Δtmax)
         end
     end
-    # return Xnm ./ Mnm
     return Xnm
 end
 
-function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
+function log_duration_sum(
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1},
+    parents::Array{Array{Int32,1},1},
+    size,
+    Δtmax)
+
+    zipped = zip(events, nodes, parents)
+    sums = [log_duration_sum(es, ns, ps, size, Δtmax) for (es, ns, ps) in zipped]
+    return sum(sums)
+end
+
+function log_duration_variation(
+    Xnm,  # log_duration_sum
+    events::Array{Float64,1},
+    nodes::Array{Int32,1},
+    parents::Array{Int32,1},
+    size,
+    Δtmax)
     M = length(events)
     Vnm = zeros(size, size)
     for (event, node, parent) in zip(events, nodes, parents)
@@ -238,6 +300,19 @@ function log_duration_variation(Xnm, events, nodes, parents, size, Δtmax)
         end
     end
     return Vnm
+end
+
+function log_duration_variation(
+    Xnm,  # log_duration_sum
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1},
+    parents::Array{Array{Int32,1},1},
+    size,
+    Δtmax)
+
+    zipped = zip(events, nodes, parents)
+    sums = [log_duration_variation(Xnm, es, ns, ps, size, Δtmax) for (es, ns, ps) in zipped]
+    return sum(sums)
 end
 
 
@@ -276,30 +351,74 @@ sample_adjacency_matrix!(p::HawkesProcess, events, nodes, parents, T)
 
     Sample the conditional posterior distribution of the adjacency matrix, `A`.
 """
-function sample_adjacency_matrix!(p::HawkesProcess, events, nodes, T)
+function sample_adjacency_matrix!(
+    process::HawkesProcess,
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1},
+    Ts::Array{Float64,1})
+    T = sum(Ts)
     Mn = node_counts(nodes, p.N)
     L = link_probability(p.net)
-    for j = 1:p.N  # columns
-        for i = 1:p.N  # rows
+    for j = 1:process.N  # columns
+        for i = 1:process.N  # rows
             # Set A[i, j] = 0
-            ll0a = integrated_intensity(p, T, Mn, 0, i, j)
-            ll0b = sum(log.(conditional_intensity(p, events, nodes, 0, i, j)))
+            ll0a = integrated_intensity(process, T, Mn, 0, i, j)
+            λs = vcat(conditional_intensity(process, events, nodes, 0, i, j)...)
+            ll0b = sum(log.(λs))
             ll0 = -ll0a + ll0b + log(1 - L[i, j])
             # Set A[i, j] = 1
-            ll1a = integrated_intensity(p, T, Mn, 1, i, j)
-            ll1b = sum(log.(conditional_intensity(p, events, nodes, 1, i, j)))
+            ll1a = integrated_intensity(process, T, Mn, 1, i, j)
+            λs = vcat(conditional_intensity(process, events, nodes, 1, i, j)...)
+            ll1b = sum(log.(λs))
             ll1 = -ll1a + ll1b + log(L[i, j])
             # Sample A[i, j]
             Z = logsumexp(ll0, ll1)
             ρ = exp(ll1 - Z)
-            p.A[i, j] = rand.(Bernoulli.(ρ))
+            process.A[i, j] = rand.(Bernoulli.(ρ))
         end
     end
-    return copy(p.A)
+    return copy(process.A)
 end
 
+function sample_adjacency_matrix(
+    process::HawkesProcess,
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1},
+    Ts::Array{Float64,1})
+    T = sum(Ts)
+    Mn = node_counts(nodes, process.N)
+    L = link_probability(process.net)
+    A = zeros(size(process.A))
+    for j = 1:process.N  # columns
+        for i = 1:process.N  # rows
+            # Set A[i, j] = 0
+            ll0a = integrated_intensity(process, T, Mn, 0, i, j)
+            λs = vcat(conditional_intensity(process, events, nodes, 0, i, j)...)
+            ll0b = sum(log.(λs))
+            ll0 = -ll0a + ll0b + log(1 - L[i, j])
+            # Set A[i, j] = 1
+            ll1a = integrated_intensity(process, T, Mn, 1, i, j)
+            λs = vcat(conditional_intensity(process, events, nodes, 1, i, j)...)
+            ll1b = sum(log.(λs))
+            ll1 = -ll1a + ll1b + log(L[i, j])
+            # Sample A[i, j]
+            Z = logsumexp(ll0, ll1)
+            ρ = exp(ll1 - Z)
+            A[i, j] = rand.(Bernoulli.(ρ))
+        end
+    end
+    return A
+end
+
+"""integrated_intensity(
+    process::HawkesProcess,
+    T::Float64,
+    Mn::Array{Int32,1},
+    a, i, j)
+
+Calculate the integral of the intensity of the `j`-th node, setting `A[i, j] = a`.
+"""
 function integrated_intensity(p::HawkesProcess, T, Mn, a, i, j)
-    """Calculate the integral of the intensity of the `j`-th node, setting `A[i, j] = a`."""
     lla = p.λ0[j] * T
     for k = 1:p.N
         if k == i
@@ -311,9 +430,16 @@ function integrated_intensity(p::HawkesProcess, T, Mn, a, i, j)
     return lla
 end
 
+
 # TODO: Pre-compute the indices for each node? Currently, we run through the entire array of events and check to see if each event is on the node of interest. We could instead run through the array once and find all the indices for each node, then directly compute intensity at those events.
-function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
-    """Compute intensity on node `cidx` at every event conditional on `A[pidx, cidx] == a`."""
+"""conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
+
+Compute intensity on node `cidx` at every event conditional on `A[pidx, cidx] == a`.
+"""
+function conditional_intensity(p::HawkesProcess,
+    events::Array{Float64,1},
+    nodes::Array{Int32,1},
+    a, pidx, cidx)
     λ = ones(length(events))
     ir = impulse_response(p)
     for (index, (event, node)) in enumerate(zip(events, nodes))
@@ -335,6 +461,15 @@ function conditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
         end
     end
     return λ
+end
+
+function conditional_intensity(
+    p::HawkesProcess,
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1},
+    a, pidx, cidx)
+    zipped = zip(events, nodes)
+    λs = [conditional_intensity(p, es, ns, a, pidx, cidx) for (es, ns) in zipped]
 end
 
 function pconditional_intensity(p::HawkesProcess, events, nodes, a, pidx, cidx)
@@ -388,13 +523,23 @@ sample_parents(process::HawkesProcess, events, nodes)
     - `λ0::Array{Float64,1}`: array of baseline intensities
     - `H::Array{Function,2}`: matrix of impulse response functions
 """
-function sample_parents(p::NetworkHawkesProcess, events, nodes)
+function sample_parents(p::NetworkHawkesProcess,
+    events::Array{Float64,1},
+    nodes::Array{Int32,1})
     parents = []
     for (index, (event, node)) in enumerate(zip(events, nodes))
         parent = sample_parent(p, event, node, index, events, nodes)
         append!(parents, parent)
     end
-    return parents
+    return Array{Int32,1}(parents)
+end
+
+function sample_parents(
+    p::NetworkHawkesProcess,
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1})
+    zipped = zip(events, nodes)
+    return [sample_parents(p, es, ns) for (es, ns) in zipped]
 end
 
 function sample_parent(p::NetworkHawkesProcess, event, node, index, events, nodes)
@@ -423,13 +568,24 @@ function sample_parent(p::NetworkHawkesProcess, event, node, index, events, node
     # return parentindices[argmax(rand(Discrete(λs ./ sum(λs))))]
 end
 
-function psample_parents(p::NetworkHawkesProcess, events, nodes)
+function psample_parents(
+    p::NetworkHawkesProcess,
+    events::Array{Float64,1},
+    nodes::Array{Int32,1})
     data = enumerate(zip(events, nodes))
     parents = SharedArray(zeros(Int64, length(events)))
     @sync @distributed for index = 1:length(parents)
         parents[index] = psample_parent(p.λ0, p.μ, p.τ, p.W, p.A, p.Δtmax, index, events, nodes)
     end
-    return parents
+    return Array{Int32,1}(parents)
+end
+
+function psample_parents(
+    p::NetworkHawkesProcess,
+    events::Array{Array{Float64,1},1},
+    nodes::Array{Array{Int32,1},1})
+    zipped = zip(events, nodes)
+    return [psample_parents(p, es, ns) for (es, ns) in zipped]
 end
 
 function psample_parent(λ0, μ, τ, W, A, Δtmax, index, events, nodes)
@@ -564,7 +720,7 @@ We use the process and network structures to update model parameters during Gibb
 - `n::Int32`: number of samples to draw.
 """
 function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
-    events, nodes, T = data
+    events, nodes, Ts = data
     A = Array{typeof(p.A),1}(undef,nsamples)
     if typeof(p.net) == BernoulliNetwork
         ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)
@@ -579,17 +735,18 @@ function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
     τ = Array{typeof(p.τ),1}(undef,nsamples)
     for i = 1:nsamples
         i % 100 == 0 && @info "i=$i"
-        parents = psample_parents(p, events, nodes)
-        # parents = sample_parents(p, events, nodes)
-        parentnodes = [get_parent_node(nodes, p) for p in parents]
+        # parents = psample_parents(p, events, nodes)
+        parents = sample_parents(p, events, nodes)
+        # parentnodes = Array{Int32,1}([get_parent_node(nodes, p) for p in parents])
+        parentnodes = get_parent_nodes(nodes, parents)
         W[i] = sample_weights!(p, events, nodes, parentnodes)
-        λ0[i] = sample_baseline!(p, nodes, parentnodes, T)
+        λ0[i] = sample_baseline!(p, nodes, parentnodes, Ts)
         μ[i], τ[i] = sample_impulse_response!(p, events, nodes, parents, parentnodes)
         if typeof(p.net) == BernoulliNetwork
-            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            A[i] = sample_adjacency_matrix!(p, events, nodes, Ts)
             ρ[i] = sample_network!(p.net, p.A)
         elseif typeof(p.net) == StochasticBlockNetwork
-            A[i] = sample_adjacency_matrix!(p, events, nodes, T)
+            A[i] = sample_adjacency_matrix!(p, events, nodes, Ts)
             ρ[i], z[i], π[i] = sample_network!(p.net, p.A)
         end
     end
