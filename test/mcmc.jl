@@ -2,7 +2,7 @@
     # Construct test data
     N = 2
     λ0 = ones(N)
-    W = 0.5 * ones(N, N)
+    W = 0.05 * ones(N, N)
     A = ones(N, N)
     μ = zeros(N, N)
     τ = ones(N, N)
