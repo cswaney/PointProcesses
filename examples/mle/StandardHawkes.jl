@@ -23,5 +23,5 @@ p = StandardHawkesProcess(λ0, W, A, θ, N, α0, β0, κ, ν, αθ, βθ, net)
 T = 200.;
 events, nodes = rand(p, T);
 
-@time θ_mle = mle(p, events, nodes, T);
+# @time θ_mle = mle(p, events, nodes, T);
 @time θ_trunc = mle(p, events, nodes, T, Δtmax=5.);
