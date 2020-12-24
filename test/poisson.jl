@@ -1,9 +1,9 @@
 using Distributions, Gadfly
 
-p = HomogeneousProcess(10., 1.)
+p = HomogeneousProcess(1.)
 Ts = 10. * ones(100)
 ts = sort(vcat(map(T -> rand(p, T), Ts)...))
-plot(ts, Geom.histogram)
+plot(x=ts, Geom.histogram)
 
 # p = LinearProcess(10., 1.)
 # Ts = 10. * ones(100)

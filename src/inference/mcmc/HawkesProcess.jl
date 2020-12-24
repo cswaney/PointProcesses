@@ -108,7 +108,7 @@ function get_parent_event(events, parent)
 end
 
 function get_parent_events(events, parents)
-    return [get_parent_event(nodes, p) for p in parents]
+    return [get_parent_event(events, p) for p in parents]
 end
 
 
@@ -357,8 +357,8 @@ function sample_adjacency_matrix!(
     nodes::Array{Array{Int32,1},1},
     Ts::Array{Float64,1})
     T = sum(Ts)
-    Mn = node_counts(nodes, p.N)
-    L = link_probability(p.net)
+    Mn = node_counts(nodes, process.N)
+    L = link_probability(process.net)
     for j = 1:process.N  # columns
         for i = 1:process.N  # rows
             # Set A[i, j] = 0
@@ -720,7 +720,11 @@ We use the process and network structures to update model parameters during Gibb
 - `n::Int32`: number of samples to draw.
 """
 function mcmc(p::NetworkHawkesProcess, data, nsamples::Int64)
-    events, nodes, Ts = data
+    obs, T = data
+    events = [es for (es, ns) in obs]
+    nodes = [ns for (es, ns) in obs]
+    Ts = [T for _ in obs]
+    # events, nodes, Ts = data
     A = Array{typeof(p.A),1}(undef,nsamples)
     if typeof(p.net) == BernoulliNetwork
         ρ = Array{typeof(p.net.ρ),1}(undef,nsamples)

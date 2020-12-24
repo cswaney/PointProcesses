@@ -11,9 +11,8 @@ end
 
 
 function update_link_probabilities(net::BernoulliNetwork, ρ)
-    N = length(net.ρ)
-    α = net.priors.α .+ N ^ 2 .* ρ
-    β = net.priors.β .+ N ^ 2 .* (1 .- ρ)
+    α = net.α .+ net.N ^ 2 .* ρ
+    β = net.β .+ net.N ^ 2 .* (1 .- ρ)
     return α, β
 end
 
